@@ -4,7 +4,8 @@ import {
   MultiHeadAttention,
   GlobalSelfAttention,
   CrossAttention,
-  CausalSelfAttention
+  CausalSelfAttention,
+  Encoder
 } from "./transformer.js";
 
 // Example usage
@@ -55,40 +56,47 @@ import {
 // // Print the shape of the output tensor
 // console.log('Output shape:', output.shape);
 
-//  test the custom layer Causal Self Attention
-const causalSelfAttention = new CausalSelfAttention(128, 4, {});
+// //  test the custom layer Causal Self Attention
+// const causalSelfAttention = new CausalSelfAttention(128, 4, {});
 
-// Create a mock input tensor [batch_size, sequence_length, d_model]
-// For simplicity, let's assume batch_size=1, sequence_length=5, d_model=128
-const inputTensor = tf.randomNormal([1, 5, 128]);
+// // Create a mock input tensor [batch_size, sequence_length, d_model]
+// // For simplicity, let's assume batch_size=1, sequence_length=5, d_model=128
+// const inputTensor = tf.randomNormal([1, 5, 128]);
 
-// Run the forward pass
-const outputTensor = causalSelfAttention.call(inputTensor);
+// // Run the forward pass
+// const outputTensor = causalSelfAttention.call(inputTensor);
 
-// Print the output shape
-console.log('Output Tensor Shape:', outputTensor.shape);
+// // Print the output shape
+// console.log('Output Tensor Shape:', outputTensor.shape);
 
-// Check output shape [1, 5, 128]
-if (outputTensor.shape.toString() !== '1,5,128') {
-  console.log('Test failed: Unexpected output shape.');
-}
+// // Check output shape [1, 5, 128]
+// if (outputTensor.shape.toString() !== '1,5,128') {
+//   console.log('Test failed: Unexpected output shape.');
+// }
 
-// Check causality (This is a rough check; for rigorous tests, you'd need known inputs and outputs)
-const outputArray = await outputTensor.array();
-const inputArray = await inputTensor.array();
+// // Check causality (This is a rough check; for rigorous tests, you'd need known inputs and outputs)
+// const outputArray = await outputTensor.array();
+// const inputArray = await inputTensor.array();
 
-// For each token in the sequence
-for (let i = 0; i < 5; i++) {
-  const outToken = outputArray[0][i];
-  const inTokens = inputArray[0].slice(0, i + 1); // Tokens up to and including i
+// Create an instance of the Encoder
+const encoder = new Encoder({
+  num_layers: 2,
+  d_model: 512,
+  num_heads: 8,
+  dff: 2048,
+  vocab_size: 10000,
+  dropout_rate: 0.1
+});
 
-  // Rough check: Ensure the output token isn't exactly equal to any of the non-causal input tokens
-  for (let j = i + 1; j < 5; j++) {
-    const nonCausalToken = inputArray[0][j];
-    if (JSON.stringify(outToken) === JSON.stringify(nonCausalToken)) {
-      console.log('Test failed: Output appears to be influenced by a future token.');
-    }
-  }
-}
+// Create some mock data (batch_size: 3, seq_len: 4)
+const mockData = tf.tensor([
+  [1, 2, 3, 4],
+  [5, 6, 7, 8],
+  [9, 10, 11, 12]
+]);
 
-console.log('Test passed: Output shape is correct and causality seems to be maintained.');
+// Test the Encoder
+const output = encoder.call(mockData);
+
+// Print the output shape (should be [3, 4, 512] if everything is set up correctly)
+output.print();

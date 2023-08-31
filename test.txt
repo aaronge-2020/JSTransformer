@@ -1,0 +1,5 @@
+test = await import("http://127.0.0.1:5500/test.js")
+
+
+tf = await import("https://cdn.jsdelivr.net/npm/tfjs/+esm")
+tf = tf.default

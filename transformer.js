@@ -64,111 +64,80 @@ class PositionalEmbedding extends tf.layers.Layer {
   }
 }
 class MultiHeadAttention extends tf.layers.Layer {
-  constructor(d_model, num_heads, config) {
-    super(config);
-    this.num_heads = num_heads;
-    this.d_model = d_model;
-    if (d_model % this.num_heads !== 0) {
-      throw new Error("d_model must be divisible by num_heads");
+    constructor(d_model, num_heads, config, causal = false) {
+      super(config);
+      this.num_heads = num_heads;
+      this.d_model = d_model;
+      this.causal = causal; // Add this line to include a causal flag
+      if (d_model % this.num_heads !== 0) {
+        throw new Error("d_model must be divisible by num_heads");
+      }
+      this.depth = Math.floor(d_model / this.num_heads);
+  
+      this.wq = tf.layers.dense({ units: d_model });
+      this.wk = tf.layers.dense({ units: d_model });
+      this.wv = tf.layers.dense({ units: d_model });
+      this.dense = tf.layers.dense({ units: d_model });
     }
-    this.depth = Math.floor(d_model / this.num_heads);
-
-    this.wq = tf.layers.dense({ units: d_model });
-    this.wk = tf.layers.dense({ units: d_model });
-    this.wv = tf.layers.dense({ units: d_model });
-    this.dense = tf.layers.dense({ units: d_model });
-  }
-
-  scaledDotProductAttention(q, k, v, mask = null) {
-    // Matrix multiply queries and keys to get unscaled attention logits
-    const matmulQK = tf.matMul(q, k.transpose([0, 1, 3, 2])); // Note the rank-4 transpose
-
-    // Get query embedding dimension for scaling
-    const dk = k.shape[k.shape.length - 1];
-
-    // Scale the attention logits by diving by sqrt of the query embedding dimension
-    const scaledAttentionLogits = matmulQK.div(tf.sqrt(dk));
-
-    // Declare variable for attention weights
-    let attentionWeights;
-
-    // Apply mask to logits if provided
-    if (mask) {
-      const maskedScaledAttentionLogits = scaledAttentionLogits.add(
-        mask.mul(tf.scalar(-1e9))
-      );
-
-      // Get softmax normalized attention weights, masked if provided
-      attentionWeights = tf.softmax(maskedScaledAttentionLogits, -1);
-    } else {
-      // Get softmax normalized attention weights
-      attentionWeights = tf.softmax(scaledAttentionLogits, -1);
+  
+    scaledDotProductAttention(q, k, v, mask = null) {
+      const matmulQK = tf.matMul(q, k.transpose([0, 1, 3, 2]));
+      const dk = k.shape[k.shape.length - 1];
+      let scaledAttentionLogits = matmulQK.div(tf.sqrt(dk));
+  
+      // Apply causal mask if required
+      if (this.causal) {
+        const seqLen = scaledAttentionLogits.shape[scaledAttentionLogits.shape.length - 2];
+        const upperTriangular = tf.linalg.bandPart(tf.ones([seqLen, seqLen]), 0, -1);
+        const identityMatrix = tf.eye(seqLen);
+        const causalMask = upperTriangular.sub(identityMatrix);
+        scaledAttentionLogits = scaledAttentionLogits.add(causalMask.mul(tf.scalar(-1e9)));
+      }
+  
+      if (mask) {
+        scaledAttentionLogits = scaledAttentionLogits.add(mask.mul(tf.scalar(-1e9)));
+      }
+  
+      const attentionWeights = tf.softmax(scaledAttentionLogits, -1);
+      const output = tf.matMul(attentionWeights, v);
+  
+      return [output, attentionWeights];
     }
-
-    // Weight values by attention weights to get weighted sum output
-    const output = tf.matMul(attentionWeights, v);
-
-    return [output, attentionWeights];
+  
+    splitHeads(x, batch_size) {
+      const reshaped = x.reshape([batch_size, -1, this.num_heads, this.depth]);
+      return reshaped.transpose([0, 2, 1, 3]);
+    }
+  
+    call(v, k, q, mask = null) {
+      const batchSize = q.shape[0];
+      const qProcessed = this.wq.apply(q);
+      const kProcessed = this.wk.apply(k);
+      const vProcessed = this.wv.apply(v);
+  
+      const qSplit = this.splitHeads(qProcessed, batchSize);
+      const kSplit = this.splitHeads(kProcessed, batchSize);
+      const vSplit = this.splitHeads(vProcessed, batchSize);
+  
+      const [scaledAttention, attentionWeights] = this.scaledDotProductAttention(qSplit, kSplit, vSplit, mask);
+  
+      const scaledAttentionTransposed = scaledAttention.transpose([0, 2, 1, 3]);
+      const concatAttention = scaledAttentionTransposed.reshape([batchSize, -1, this.d_model]);
+      const output = this.dense.apply(concatAttention);
+  
+      return [output, attentionWeights];
+    }
+  
+    getClassName() {
+      return "MultiHeadAttention";
+    }
   }
-  splitHeads(x, batch_size) {
-    // Reshape the input tensor to split into multiple heads
-    // Last dimension will be split into num_heads
-    // Output shape will be [batch, seq_len, num_heads, depth]
-    const reshaped = x.reshape([batch_size, -1, this.num_heads, this.depth]);
-
-    // Transpose the split tensor to move the num_heads dimension
-    // to be after the batch dimension
-    // Output shape is [batch, num_heads, seq_len, depth]
-    return reshaped.transpose([0, 2, 1, 3]);
-  }
-
-  call(v, k, q, mask = null) {
-    // Get batch size
-    const batchSize = q.shape[0];
-
-    // Apply dense layers to the inputs
-    const qProcessed = this.wq.apply(q);
-    const kProcessed = this.wk.apply(k);
-    const vProcessed = this.wv.apply(v);
-
-    // Split inputs into multiple heads
-    const qSplit = this.splitHeads(qProcessed, batchSize);
-    const kSplit = this.splitHeads(kProcessed, batchSize);
-    const vSplit = this.splitHeads(vProcessed, batchSize);
-
-    // Scale, mask, and softmax to get attention weights
-    // and multiply values by weights to get multi-head weighted sum output
-    const [scaledAttention, attentionWeights] = this.scaledDotProductAttention(
-      qSplit,
-      kSplit,
-      vSplit,
-      mask
-    );
-
-    // Transpose and reshape output from multiple heads back to original shape
-    const scaledAttentionTransposed = scaledAttention.transpose([0, 2, 1, 3]);
-    const concatAttention = scaledAttentionTransposed.reshape([
-      batchSize,
-      -1,
-      this.d_model,
-    ]);
-
-    // Final dense layer
-    const output = this.dense.apply(concatAttention);
-
-    return [output, attentionWeights];
-  }
-
-  getClassName() {
-    return "MultiHeadAttention";
-  }
-}
-
+  
 class BaseAttention extends tf.layers.Layer {
-  constructor(d_model, num_heads, config) {
+  constructor(d_model, num_heads, config, causal = false) {
     super(config);
 
-    this.mha = new MultiHeadAttention(d_model, num_heads, config);
+    this.mha = new MultiHeadAttention(d_model, num_heads, config, causal);
     this.layernorm = tf.layers.layerNormalization();
     this.add = tf.layers.add();
   }
@@ -232,10 +201,30 @@ class GlobalSelfAttention extends BaseAttention {
   }
 }
 
+class CausalSelfAttention extends BaseAttention {
+    constructor(d_model, num_heads, config) {
+      super(d_model, num_heads, config, true); // Enable causal attention by setting the last argument to true
+    }
+  
+    call(x, mask = null) {
+      // Multi-head attention layer with causal mask enabled
+      const [attnOutput, _] = this.mha.call(x, x, x, mask);
+  
+      // Add & normalize layer
+      const addOutput = this.add.apply([x, attnOutput]);
+      const output = this.layernorm.apply(addOutput);
+  
+      return output;
+    }
+  }
+
+  
+
 export {
   positionalEncoding,
   PositionalEmbedding,
   MultiHeadAttention,
   CrossAttention,
   GlobalSelfAttention,
+  CausalSelfAttention,
 };

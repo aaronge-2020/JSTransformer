@@ -202,7 +202,7 @@ class GlobalSelfAttention extends BaseAttention {
     const x = inputs;
 
     // Forward pass through MultiHeadAttention
-    const attnOutput = this.mha.apply(x, x, x);
+    const [attnOutput, attnScores] = this.mha.call(x, x, x);
 
     // Add the output to the original input (Residual connection)
     const addedOutput = this.add.apply([x, attnOutput]);
@@ -236,8 +236,7 @@ class CausalSelfAttention extends BaseAttention {
   }
 }
 class FeedForward extends tf.layers.Layer {
-
-    /*
+  /*
 
     Implements the feedforward network used in the transformer.
 
@@ -249,8 +248,11 @@ class FeedForward extends tf.layers.Layer {
     */
 
   constructor(dModel, dff, dropoutRate = 0.1) {
+    super();
     this.seq = tf.sequential();
-    this.seq.add(tf.layers.dense({ units: dff, activation: "relu" }));
+    this.seq.add(
+      tf.layers.dense({ units: dff, activation: "relu", inputShape: [dModel] })
+    );
     this.seq.add(tf.layers.dense({ units: dModel }));
     this.seq.add(tf.layers.dropout({ rate: dropoutRate }));
     this.layerNorm = tf.layers.layerNormalization();
@@ -269,13 +271,9 @@ class FeedForward extends tf.layers.Layer {
 }
 
 class EncoderLayer extends tf.layers.Layer {
-  constructor({ d_model, num_heads, dff, dropout_rate = 0.1 }) {
+  constructor(d_model, num_heads, dff, dropout_rate = 0.1) {
     super();
-    this.self_attention = new GlobalSelfAttention({
-      num_heads: num_heads,
-      key_dim: d_model,
-      dropout: dropout_rate
-    });
+    this.self_attention = new GlobalSelfAttention(d_model, num_heads);
     this.ffn = new FeedForward(d_model, dff);
   }
 
@@ -287,34 +285,33 @@ class EncoderLayer extends tf.layers.Layer {
   getClassName() {
     return "EncoderLayer";
   }
-
 }
 
 class Encoder extends tf.layers.Layer {
-  constructor({ num_layers, d_model, num_heads, dff, vocab_size, dropout_rate = 0.1 }) {
+  constructor(
+    num_layers,
+    d_model,
+    num_heads,
+    dff,
+    vocab_size,
+    dropout_rate = 0.1
+  ) {
     super();
     this.d_model = d_model;
     this.num_layers = num_layers;
 
-    this.pos_embedding = new PositionalEmbedding(
-      vocab_size,
-       d_model
-    );
+    this.pos_embedding = new PositionalEmbedding(vocab_size, d_model);
 
-    this.enc_layers = Array.from({ length: num_layers }, () => 
-      new EncoderLayer({
-        d_model: d_model,
-        num_heads: num_heads,
-        dff: dff,
-        dropout_rate: dropout_rate
-      })
+    this.enc_layers = Array.from(
+      { length: num_layers },
+      () => new EncoderLayer(d_model, num_heads, dff, dropout_rate)
     );
 
     this.dropout = tf.layers.dropout({ rate: dropout_rate });
   }
 
   call(inputs) {
-    let x = this.pos_embedding.apply(inputs);  // Assuming shape `(batch_size, seq_len, d_model)`.
+    let x = this.pos_embedding.apply(inputs); // Assuming shape `(batch_size, seq_len, d_model)`.
 
     // Add dropout
     x = this.dropout.apply(x);
@@ -323,15 +320,13 @@ class Encoder extends tf.layers.Layer {
       x = this.enc_layers[i].apply(x);
     }
 
-    return x;  // Should have shape `(batch_size, seq_len, d_model)`.
+    return x; // Should have shape `(batch_size, seq_len, d_model)`.
   }
 
   getClassName() {
     return "Encoder";
   }
 }
-
-
 
 export {
   positionalEncoding,
@@ -340,5 +335,21 @@ export {
   CrossAttention,
   GlobalSelfAttention,
   CausalSelfAttention,
-  Encoder
+  Encoder,
 };
+
+// Create an instance of the Encoder
+const encoder = new Encoder(2, 512, 8, 2048, 10000, 0.1);
+
+// Create some mock data (batch_size: 3, seq_len: 4)
+const mockData = tf.tensor([
+  [1, 2, 3, 4],
+  [5, 6, 7, 8],
+  [9, 10, 11, 12],
+]);
+
+// Test the Encoder
+const output = encoder.call(mockData);
+
+// Print the output shape (should be [3, 4, 512] if everything is set up correctly)
+output.print();

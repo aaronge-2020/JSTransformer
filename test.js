@@ -5,7 +5,7 @@ import {
   GlobalSelfAttention,
   CrossAttention,
   CausalSelfAttention,
-  Encoder
+  Encoder,
 } from "./transformer.js";
 
 // Example usage
@@ -29,7 +29,7 @@ import {
 // output.print();
 
 // test the custom layer MHA
-  // Create MultiHeadAttention instance
+// Create MultiHeadAttention instance
 //   const multi = new MultiHeadAttention(512, 2);
 
 //   // Create random tensor of shape [1, 60, 512]
@@ -79,20 +79,13 @@ import {
 // const inputArray = await inputTensor.array();
 
 // Create an instance of the Encoder
-const encoder = new Encoder({
-  num_layers: 2,
-  d_model: 512,
-  num_heads: 8,
-  dff: 2048,
-  vocab_size: 10000,
-  dropout_rate: 0.1
-});
+const encoder = new Encoder(2, 512, 8, 2048, 10000, 0.1);
 
 // Create some mock data (batch_size: 3, seq_len: 4)
 const mockData = tf.tensor([
   [1, 2, 3, 4],
   [5, 6, 7, 8],
-  [9, 10, 11, 12]
+  [9, 10, 11, 12],
 ]);
 
 // Test the Encoder

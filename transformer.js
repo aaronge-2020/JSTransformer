@@ -101,12 +101,6 @@ class MultiHeadAttention extends tf.layers.Layer {
       );
     }
 
-    if (mask) {
-      scaledAttentionLogits = scaledAttentionLogits.add(
-        mask.mul(tf.scalar(-1e9))
-      );
-    }
-
     const attentionWeights = tf.softmax(scaledAttentionLogits, -1);
     const output = tf.matMul(attentionWeights, v);
 
@@ -328,6 +322,109 @@ class Encoder extends tf.layers.Layer {
   }
 }
 
+
+class DecoderLayer extends tf.layers.Layer {
+  constructor(d_model, num_heads, dff, dropout_rate = 0.1) {
+    super();
+    this.causalSelfAttention = new CausalSelfAttention(
+      d_model,
+      num_heads,     
+      dropout_rate
+    );
+
+    this.crossAttention = new CrossAttention(
+      d_model,
+      num_heads,
+      dropout_rate
+    );
+
+    this.ffn = new FeedForward(d_model, dff);
+  }
+
+  call(inputs) {
+    const [x, context] = inputs;
+    let out = this.causalSelfAttention.apply(x);
+    out = this.crossAttention.apply([out, context]);
+
+    // Cache the last attention scores for plotting later
+    this.lastAttnScores = this.crossAttention.lastAttnScores;
+
+    out = this.ffn.apply(out);
+    return out;
+  }
+
+  getClassName() {
+    return "DecoderLayer";
+  }
+
+}
+
+
+class Decoder extends tf.layers.Layer {
+  constructor( num_layers, d_model, num_heads, dff, vocab_size, dropout_rate=0.1 ) {
+    super();
+    this.d_model = d_model;
+    this.num_layers = num_layers;
+
+    this.pos_embedding = new PositionalEmbedding(vocab_size, d_model);
+    this.dropout = tf.layers.dropout({ rate: dropout_rate });
+    this.dec_layers = Array.from({ length: num_layers }, () => 
+      new DecoderLayer(d_model, num_heads, dff, dropout_rate)
+    );
+
+    this.last_attn_scores = null;
+  }
+
+  call(inputs) {
+    const [x, context] = inputs;
+    
+    let out = this.pos_embedding.apply(x); // Assuming shape `(batch_size, target_seq_len, d_model)`
+
+    out = this.dropout.apply(out);
+
+    for (let i = 0; i < this.num_layers; i++) {
+      out = this.dec_layers[i].apply([out, context]);
+    }
+
+    this.last_attn_scores = this.dec_layers[this.num_layers - 1].lastAttnScores;
+
+    // The shape of out is (batch_size, target_seq_len, d_model)
+    return out;
+  }
+
+  getClassName() {
+    return "Decoder";
+  }
+}
+
+class Transformer extends tf.layers.Layer {
+  constructor(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate=0.1) {
+    super();
+    this.encoder = new Encoder(num_layers, d_model, num_heads, dff, input_vocab_size, dropout_rate);
+    this.decoder = new Decoder(num_layers, d_model, num_heads, dff, target_vocab_size, dropout_rate);
+    this.final_layer = tf.layers.dense({ units: target_vocab_size });
+  }
+
+  call(inputs) {
+    const [context, x] = inputs;
+
+    const enc_output = this.encoder.apply(context);  // (batch_size, context_len, d_model)
+    const dec_output = this.decoder.apply([x, enc_output]);  // (batch_size, target_len, d_model)
+
+    // Final linear layer
+    const logits = this.final_layer.apply(dec_output);  // (batch_size, target_len, target_vocab_size)
+
+    // Normally, TensorFlow.js doesn't require explicit handling of masks like in the Python version
+    // so we don't do the "del logits._keras_mask" step
+
+    return logits;
+  }
+
+  getClassName() {
+    return 'Transformer';
+  }
+}
+
 export {
   positionalEncoding,
   PositionalEmbedding,
@@ -336,20 +433,8 @@ export {
   GlobalSelfAttention,
   CausalSelfAttention,
   Encoder,
+  DecoderLayer,
+  Decoder,
+  Transformer
 };
 
-// Create an instance of the Encoder
-const encoder = new Encoder(2, 512, 8, 2048, 10000, 0.1);
-
-// Create some mock data (batch_size: 3, seq_len: 4)
-const mockData = tf.tensor([
-  [1, 2, 3, 4],
-  [5, 6, 7, 8],
-  [9, 10, 11, 12],
-]);
-
-// Test the Encoder
-const output = encoder.call(mockData);
-
-// Print the output shape (should be [3, 4, 512] if everything is set up correctly)
-output.print();

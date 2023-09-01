@@ -6,6 +6,9 @@ import {
   CrossAttention,
   CausalSelfAttention,
   Encoder,
+  DecoderLayer,
+  Decoder,
+  Transformer
 } from "./transformer.js";
 
 // Example usage
@@ -78,18 +81,80 @@ import {
 // const outputArray = await outputTensor.array();
 // const inputArray = await inputTensor.array();
 
-// Create an instance of the Encoder
-const encoder = new Encoder(2, 512, 8, 2048, 10000, 0.1);
+// // Create an instance of the Encoder
+// const encoder = new Encoder(2, 512, 8, 2048, 10000, 0.1);
 
-// Create some mock data (batch_size: 3, seq_len: 4)
-const mockData = tf.tensor([
-  [1, 2, 3, 4],
-  [5, 6, 7, 8],
-  [9, 10, 11, 12],
-]);
+// // Create some mock data (batch_size: 3, seq_len: 4)
+// const mockData = tf.tensor([
+//   [1, 2, 3, 4],
+//   [5, 6, 7, 8],
+//   [9, 10, 11, 12],
+// ]);
 
-// Test the Encoder
-const output = encoder.call(mockData);
+// // Test the Encoder
+// const output = encoder.call(mockData);
 
-// Print the output shape (should be [3, 4, 512] if everything is set up correctly)
-output.print();
+// // Print the output shape (should be [3, 4, 512] if everything is set up correctly)
+// output.print();
+
+
+// // Test the decoder layer
+// // Initialize the DecoderLayer
+// const d_model = 512;
+// const num_heads = 8;
+// const dff = 2048;
+// const dropout_rate = 0.1;
+
+// const decoderLayer = new DecoderLayer(d_model, num_heads, dff, dropout_rate);
+
+// // Create some dummy data to pass through the layer
+// const batchSize = 64;
+// const seqLen = 50;
+
+// const x = tf.randomNormal([batchSize, seqLen, d_model]);  // Your input tensor
+// const context = tf.randomNormal([batchSize, seqLen, d_model]);  // Your context tensor
+
+// // Run the data through the layer
+// const output = decoderLayer.call([x, context]);
+
+// // Inspect the output
+// output.print();
+
+// // Instantiate the decoder
+// const sampleDecoder = new Decoder(1, 128, 4, 1028, 1000);
+
+// // Create some mock data for 'x' and 'context'
+// // Assuming 'x' and 'context' are 3D tensors.
+// // Replace these lines with your actual tensors.
+// const en = tf.randomNormal([64, 50, 512]); // Mock shape [batch_size, sequence_length, d_model]
+// const pt_emb = tf.randomNormal([64, 50, 512]); // Mock shape [batch_size, sequence_length, d_model]
+
+// // Test the Decoder
+// const output = sampleDecoder.call([en, pt_emb]);
+
+// // Print the shapes
+// en.shape.print();
+// pt_emb.shape.print();
+// output.shape.print();
+
+// Test the Transformer
+const num_layers = 4
+const d_model = 128
+const dff = 512
+const num_heads = 8
+const dropout_rate = 0.1
+
+const transformer = new Transformer(
+  num_layers,
+  d_model,
+  num_heads,
+  dff,
+  1000,
+  1000,
+  0.1)
+
+// output = transformer((pt, en))
+
+// print(en.shape)
+// print(pt.shape)
+// print(output.shape)

@@ -32,10 +32,10 @@ class PositionalEmbedding extends tf.layers.Layer {
       outputDim: dModel,
       maskZero: true,
     });
-    this.posEncoding = positionalEncoding(vocabSize, dModel); // Assume positionalEncoding is a function you've defined
+    this.posEncoding = positionalEncoding(vocabSize, dModel); 
   }
 
-  call(inputs, kwargs) {
+  call(inputs) {
     let input = inputs;
     if (Array.isArray(input)) {
       input = input[0];
@@ -75,7 +75,7 @@ class MultiHeadAttention extends tf.layers.Layer {
     this.dense = tf.layers.dense({ units: d_model });
   }
 
-  scaledDotProductAttention(q, k, v, mask = null) {
+  scaledDotProductAttention(q, k, v) {
     const matmulQK = tf.matMul(q, k.transpose([0, 1, 3, 2]));
     const dk = k.shape[k.shape.length - 1];
     let scaledAttentionLogits = matmulQK.div(tf.sqrt(dk));
@@ -107,7 +107,7 @@ class MultiHeadAttention extends tf.layers.Layer {
     return reshaped.transpose([0, 2, 1, 3]);
   }
 
-  call(v, k, q, mask = null) {
+  call(v, k, q) {
     const batchSize = q.shape[0];
     const qProcessed = this.wq.apply(q);
     const kProcessed = this.wk.apply(k);
@@ -120,8 +120,7 @@ class MultiHeadAttention extends tf.layers.Layer {
     const [scaledAttention, attentionWeights] = this.scaledDotProductAttention(
       qSplit,
       kSplit,
-      vSplit,
-      mask
+      vSplit
     );
 
     const scaledAttentionTransposed = scaledAttention.transpose([0, 2, 1, 3]);
@@ -213,9 +212,9 @@ class CausalSelfAttention extends BaseAttention {
     super(d_model, num_heads, config, true); // Enable causal attention by setting the last argument to true
   }
 
-  call(x, mask = null) {
+  call(x) {
     // Multi-head attention layer with causal mask enabled
-    const [attnOutput, _] = this.mha.call(x, x, x, mask);
+    const [attnOutput, _] = this.mha.call(x, x, x);
 
     // Add & normalize layer
     const addOutput = this.add.apply([x, attnOutput]);

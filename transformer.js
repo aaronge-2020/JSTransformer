@@ -35,11 +35,6 @@ class PositionalEmbedding extends tf.layers.Layer {
     this.posEncoding = positionalEncoding(2048, dModel); // Assume positionalEncoding is a function you've defined
   }
 
-  computeMask(inputs, mask = null) {
-    //   return this.embedding.computeMask(inputs, mask);
-    return null;
-  }
-
   call(inputs, kwargs) {
     let input = inputs;
     if (Array.isArray(input)) {

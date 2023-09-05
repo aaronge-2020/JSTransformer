@@ -32,7 +32,7 @@ class PositionalEmbedding extends tf.layers.Layer {
       outputDim: dModel,
       maskZero: true,
     });
-    this.posEncoding = positionalEncoding(2048, dModel); // Assume positionalEncoding is a function you've defined
+    this.posEncoding = positionalEncoding(vocabSize, dModel); // Assume positionalEncoding is a function you've defined
   }
 
   call(inputs, kwargs) {

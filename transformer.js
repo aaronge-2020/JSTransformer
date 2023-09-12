@@ -1,3 +1,6 @@
+const tf = await import("https://esm.sh/@tensorflow/tfjs@4.10.0");
+
+
 function positionalEncoding(length, depth) {
   /*
     Generates the positional encoding for a transformer model.
@@ -391,9 +394,9 @@ class Decoder extends tf.layers.Layer {
   }
 }
 
-class Transformer extends tf.layers.Layer {
-  constructor(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate=0.1) {
-    super();
+class Transformer extends tf.model {
+  constructor(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate=0.1, config) {
+    super({'name':'Transformer'});
     this.encoder = new Encoder(num_layers, d_model, num_heads, dff, input_vocab_size, dropout_rate);
     this.decoder = new Decoder(num_layers, d_model, num_heads, dff, target_vocab_size, dropout_rate);
     this.final_layer = tf.layers.dense({ units: target_vocab_size });

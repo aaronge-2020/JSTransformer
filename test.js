@@ -136,6 +136,84 @@ import {
 // en.shape.print();
 // pt_emb.shape.print();
 // output.shape.print();
+import nlpjsnlp from 'https://cdn.jsdelivr.net/npm/@nlpjs/nlp@4.27.0/+esm'
+
+let vocabulary = {};
+
+function buildVocabulary(tokenizedData) {
+    tokenizedData.forEach(item => {
+        item.en.forEach(token => vocabulary[token] = (vocabulary[token] || 0) + 1);
+        item.pt.forEach(token => vocabulary[token] = (vocabulary[token] || 0) + 1);
+    });
+}
+
+function convertTokensToIntegers(tokenizedData) {
+    const vocabArray = Object.keys(vocabulary);
+    const tokenToInt = {};
+    vocabArray.forEach((token, index) => tokenToInt[token] = index + 1);
+
+    return tokenizedData.map(item => ({
+        en: item.en.map(token => tokenToInt[token]),
+        pt: item.pt.map(token => tokenToInt[token])
+    }));
+}
+
+function prepareBatches(data, batchSize) {
+    const batches = [];
+    for(let i = 0; i < data.length; i += batchSize) {
+        batches.push(data.slice(i, i + batchSize));
+    }
+    return batches;
+}
+
+function tokenizeSentence(sentence) {
+  // Unicode normalization
+  sentence = sentence.normalize('NFD').replace(/[\u0300-\u036f]/g, "");
+
+  // Case normalization
+  sentence = sentence.toLowerCase();
+
+  // Handling apostrophes
+  sentence = sentence.replace(/n't/g, " not").replace(/'ve/g, " have").replace(/'re/g, " are").replace(/'ll/g, " will").replace(/'d/g, " would").replace(/'s/g, " is");
+
+  // Handling numbers (replacing with a placeholder)
+  sentence = sentence.replace(/\b\d+\b/g, "<NUM>");
+
+  // Handling URLs (replacing with a placeholder)
+  sentence = sentence.replace(/https?:\/\/[^\s]+/g, "<URL>");
+
+  // Handling email addresses (replacing with a placeholder)
+  sentence = sentence.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "<EMAIL>");
+
+  // Tokenization while keeping hyphenated words intact
+  return sentence.replace(/[.,!?;:]/g, ' $& ').replace(/\s+/g, ' ').trim().split(' ');
+}
+
+function splitData(data) {
+  const totalData = data.length;
+  const trainData = data.slice(0, Math.floor(totalData * 0.8));
+  const validationData = data.slice(Math.floor(totalData * 0.8), Math.floor(totalData * 0.9));
+  const testData = data.slice(Math.floor(totalData * 0.9), totalData);
+  return { trainData, validationData, testData };
+}
+
+function processJson(jsonData) {
+  const tokenizedData = jsonData.map(item => ({
+      en: tokenizeSentence(item.en),
+      pt: tokenizeSentence(item.pt)
+  }));
+
+  buildVocabulary(tokenizedData);
+  const dataWithIntegers = convertTokensToIntegers(tokenizedData);
+  const { trainData, validationData, testData } = splitData(dataWithIntegers);
+
+  const batchSize = 32; // Adjust as needed
+  return {
+      trainBatches: prepareBatches(trainData, batchSize),
+      validationBatches: prepareBatches(validationData, batchSize),
+      testBatches: prepareBatches(testData, batchSize)
+  };
+}
 
 // Test the Transformer
 const num_layers = 4
@@ -153,8 +231,7 @@ const transformer = new Transformer(
   1000,
   0.1)
 
-// output = transformer((pt, en))
+  const response = await fetch('./data.json');
+  const jsonData = await response.json();
 
-// print(en.shape)
-// print(pt.shape)
-// print(output.shape)
+console.log(processJson(jsonData));

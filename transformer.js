@@ -241,7 +241,7 @@ class FeedForward extends tf.layers.Layer {
     super();
     this.seq = tf.sequential();
     this.seq.add(
-      tf.layers.dense({ units: dff, activation: "relu", inputShape: [dModel] })
+      tf.layers.dense({ units: dff, activation: "relu", inputDim: dModel })
     );
     this.seq.add(tf.layers.dense({ units: dModel }));
     this.seq.add(tf.layers.dropout({ rate: dropoutRate }));
@@ -394,7 +394,7 @@ class Decoder extends tf.layers.Layer {
   }
 }
 
-class Transformer extends tf.LayersModel {
+class Transformer extends tf.model {
   constructor(
     num_layers,
     d_model,
@@ -407,19 +407,12 @@ class Transformer extends tf.LayersModel {
   ) {
     super({
       name: "Transformer",
-      inputs: tf.layers.dense({ units: input_vocab_size }),
+      inputs: tf.input({
+        shape: [null, null], 
+        dtype: 'int32'
+      }),
       outputs: tf.layers
         .dense({ units: target_vocab_size })
-        .apply(
-          new Encoder(
-            num_layers,
-            d_model,
-            num_heads,
-            dff,
-            input_vocab_size,
-            dropout_rate
-          )
-        )
         .apply(
           new Decoder(
             num_layers,
@@ -428,6 +421,18 @@ class Transformer extends tf.LayersModel {
             dff,
             target_vocab_size,
             dropout_rate
+          ).apply(
+            new Encoder(
+              num_layers,
+              d_model,
+              num_heads,
+              dff,
+              input_vocab_size,
+              dropout_rate
+            ).apply(tf.input({
+              shape: [null, null], 
+              dtype: 'int32'
+            }))
           )
         ),
     });

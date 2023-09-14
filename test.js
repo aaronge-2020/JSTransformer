@@ -16,8 +16,8 @@ const dff = 512
 const num_heads = 8
 const dropout_rate = 0.1
 
-const input_vocab_size = 2483
-const target_vocab_size = 2483
+const input_vocab_size = 28021
+const target_vocab_size = 45058
 
 const transformerModel = new TransformerModel(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate, input_vocab_size, target_vocab_size);
 const model = transformerModel.model;
@@ -41,19 +41,20 @@ function convertToTensor(arr) {
   return arr;
 ;
 }
-function convertTo3DTensor(arrayOfArraysOfTensors) {
-  // Convert the array of arrays of tensors to a 3D tensor
-  const stackedTensors = arrayOfArraysOfTensors.map(arr => tf.stack(arr));
-  return tf.stack(stackedTensors);
-}
 
-const pt_train = processedData.trainData.map((item) => convertToTensor(item.pt))
+const pt_train = processedData.trainData.map((item) => item.pt)
 
-const en_train = processedData.trainData.map((item) => convertToTensor(item.en))
+const en_train = processedData.trainData.map((item) => item.en)
 
-const train_x = tf.stack(pt_train)
-const train_y = tf.stack(en_train)
+// const pt_train = processedData.trainData.map((batch) => batch.map((item) => item.pt))
 
-model.fit([train_x, train_y])
+// const en_train = processedData.trainData.map((batch) => batch.map((item) => item.en))
+
+
+
+const train_x = tf.expandDims(tf.tensor(pt_train), 0) 
+const train_y = tf.expandDims(tf.tensor(en_train), 0)
+
+model.fit([train_x, train_y], [train_x, train_y])
 
 console.log("hello");

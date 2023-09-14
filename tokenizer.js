@@ -14,7 +14,7 @@ function buildVocabulary(tokenizedData) {
   });
 }
 
-function convertTokensToIntegers(tokenizedData, max_tokens = 50) {
+function convertTokensToIntegers(tokenizedData, max_tokens = 60) {
     vocabularyEn["<START>"] = 1;
     vocabularyEn["<END>"] = 2;
     vocabularyPt["<START>"] = 1;
@@ -154,7 +154,7 @@ function splitData(data) {
   return { trainData, validationData, testData };
 }
 
-function processJson(jsonData, max_tokens = 50) {
+function processJson(jsonData, max_tokens = 60) {
     const tokenizedData = jsonData.map((item) => ({
       en: tokenizeSentence(item.en),
       pt: tokenizeSentencePt(item.pt),

@@ -154,26 +154,37 @@ function splitData(data) {
   return { trainData, validationData, testData };
 }
 
-function processJson(jsonData, max_tokens = 50) {
-    const tokenizedData = jsonData.map((item) => ({
-      en: tokenizeSentence(item.en),
-      pt: tokenizeSentencePt(item.pt),
-    }));
-  
-    buildVocabulary(tokenizedData);
-    const dataWithIntegers = convertTokensToIntegers(tokenizedData, max_tokens);
-    const { trainData, validationData, testData } = splitData(dataWithIntegers);
-  
-    return {
-      trainData,
-      validationData,
-      testData,
-      tokenizers: {
-        en: intToTokenEn,
-        pt: intToTokenPt,
-      },
-    };
+function getBatches(data, batch_size = 4) {
+    let batches = [];
+    for (let i = 0; i < data.length; i += batch_size) {
+      batches.push(data.slice(i, i + batch_size));
+    }
+    return batches;
   }
-  
+
+function processJson(jsonData, max_tokens = 50, batch_size = 4) {
+  const tokenizedData = jsonData.map((item) => ({
+    en: tokenizeSentence(item.en),
+    pt: tokenizeSentencePt(item.pt),
+  }));
+
+  buildVocabulary(tokenizedData);
+  const dataWithIntegers = convertTokensToIntegers(tokenizedData, max_tokens);
+  const { trainData, validationData, testData } = splitData(dataWithIntegers);
+
+  const trainBatches = getBatches(trainData, batch_size);
+  const validationBatches = getBatches(validationData, batch_size);
+  const testBatches = getBatches(testData, batch_size);
+
+  return {
+    trainData: trainBatches,
+    validationData: validationBatches,
+    testData: testBatches,
+    tokenizers: {
+      en: intToTokenEn,
+      pt: intToTokenPt,
+    },
+  };
+}
 
 export { processJson, detokenizeSentence };

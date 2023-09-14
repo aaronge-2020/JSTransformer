@@ -373,6 +373,7 @@ class Decoder extends tf.layers.Layer {
   }
 
   call(inputs) {
+
     const [x, context] = inputs;
 
     let out = this.pos_embedding.apply(x); // Assuming shape `(batch_size, target_seq_len, d_model)`
@@ -380,7 +381,7 @@ class Decoder extends tf.layers.Layer {
     out = this.dropout.apply(out);
 
     for (let i = 0; i < this.num_layers; i++) {
-      out = this.dec_layers[i].apply([out, context]);
+      out = this.dec_layers[i].call([out, context]);
     }
 
     this.last_attn_scores = this.dec_layers[this.num_layers - 1].lastAttnScores;
@@ -393,46 +394,24 @@ class Decoder extends tf.layers.Layer {
     return "Decoder";
   }
 }
-
-class Transformer extends tf.Sequential {
-  constructor(
-    num_layers,
-    d_model,
-    num_heads,
-    dff,
-    input_vocab_size,
-    target_vocab_size,
-    dropout_rate = 0.1,
-    config
-  ) {
+class Transformer extends tf.layers.Layer {
+  constructor(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate=0.1) {
     super();
-    this.encoder = new Encoder(
-      num_layers,
-      d_model,
-      num_heads,
-      dff,
-      input_vocab_size,
-      dropout_rate
-    );
-    this.decoder = new Decoder(
-      num_layers,
-      d_model,
-      num_heads,
-      dff,
-      target_vocab_size,
-      dropout_rate
-    );
-    this.final_layer = tf.layers.dense({ units: target_vocab_size });
+    this.encoder = new Encoder(num_layers, d_model, num_heads, dff, input_vocab_size, dropout_rate);
+    this.decoder = new Decoder(num_layers, d_model, num_heads, dff, target_vocab_size, dropout_rate);
+    this.final_layer = tf.layers.dense({ units: target_vocab_size, name: "final_layer" });
   }
 
   call(inputs) {
+    // Context is the input sequence
+    // x is the target sequence
     const [context, x] = inputs;
 
-    const enc_output = this.encoder.apply(context); // (batch_size, context_len, d_model)
-    const dec_output = this.decoder.apply([x, enc_output]); // (batch_size, target_len, d_model)
+    const enc_output = this.encoder.call(context);  // (batch_size, context_len, d_model)
+    const dec_output = this.decoder.call([x, enc_output]);  // (batch_size, target_len, d_model)
 
     // Final linear layer
-    const logits = this.final_layer.apply(dec_output); // (batch_size, target_len, target_vocab_size)
+    const logits = this.final_layer.apply(dec_output);  // (batch_size, target_len, target_vocab_size)
 
     // Normally, TensorFlow.js doesn't require explicit handling of masks like in the Python version
     // so we don't do the "del logits._keras_mask" step
@@ -441,9 +420,46 @@ class Transformer extends tf.Sequential {
   }
 
   getClassName() {
-    return "Transformer";
+    return 'Transformer';
   }
 }
+
+class TransformerModel {
+  constructor(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate, contextLen, targetLen, max_tokens = 50) {
+    this.num_layers = num_layers;
+    this.d_model = d_model;
+    this.num_heads = num_heads;
+    this.dff = dff;
+    this.input_vocab_size = input_vocab_size;
+    this.target_vocab_size = target_vocab_size;
+    this.dropout_rate = dropout_rate;
+    this.contextLen = contextLen;
+    this.targetLen = targetLen;
+    this.max_tokens = max_tokens;
+    this.model = this.createModel();
+  }
+
+  createModel() {
+    const transformer = new Transformer(
+      this.num_layers,
+      this.d_model,
+      this.num_heads,
+      this.dff,
+      this.input_vocab_size,
+      this.target_vocab_size,
+      this.dropout_rate,
+      this.max_tokens = this.max_tokens,
+    );
+
+    const inputContext = tf.input({ shape: [null, this.max_tokens] });
+    const inputX = tf.input({ shape: [null, this.max_tokens] });
+
+    const output = transformer.call([inputContext, inputX]);
+
+    return tf.model({ inputs: [inputContext, inputX], outputs: output });
+  }
+}
+
 
 export {
   positionalEncoding,
@@ -456,4 +472,5 @@ export {
   DecoderLayer,
   Decoder,
   Transformer,
+  TransformerModel,
 };

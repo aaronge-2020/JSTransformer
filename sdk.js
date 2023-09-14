@@ -1,9 +1,9 @@
-import { Transformer } from "./transformer.js";
+import { TransformerModel } from "./transformer.js";
 import { processJson, detokenizeSentence } from "./tokenizer.js";
 
 export {
 
-    Transformer,
+    TransformerModel,
     processJson,
     detokenizeSentence,
 }

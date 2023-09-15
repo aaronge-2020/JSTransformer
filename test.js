@@ -33,7 +33,7 @@ model.compile({
   metrics: ['accuracy']
 });
 
-const response = await fetch('https://aaronge-2020.github.io/data.json');
+const response = await fetch('https://aaronge-2020.github.io/JSTransformer/data.json');
 
 
 const jsonData = await response.json();

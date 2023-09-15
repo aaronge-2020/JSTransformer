@@ -438,7 +438,8 @@ class Transformer extends tf.layers.Layer {
     dff,
     input_vocab_size,
     target_vocab_size,
-    dropout_rate = 0.1
+    dropout_rate = 0.1,
+    max_tokens
   ) {
     super({ trainable: true });
     this.encoder = new Encoder(
@@ -461,6 +462,7 @@ class Transformer extends tf.layers.Layer {
       units: target_vocab_size,
       name: "final_layer",
     });
+    this.max_tokens = max_tokens
   }
 
   call(inputs) {
@@ -485,7 +487,7 @@ class Transformer extends tf.layers.Layer {
   }
 
   computeOutputShape() {
-    return [1,60,28021]
+    return [1,this.max_tokens]
   }
 
   getClassName() {
@@ -528,7 +530,7 @@ class TransformerModel {
       this.input_vocab_size,
       this.target_vocab_size,
       this.dropout_rate,
-      (this.max_tokens = this.max_tokens)
+      this.max_tokens
     );
     // Tensorflow will always add a dimension to your input to account for batchsize
     // The shape of the input is [number_of_samples, sequence_length]

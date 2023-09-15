@@ -1,5 +1,5 @@
 import {
-  Transformer,
+  // Transformer,
   TransformerModel,
   MultiHeadAttention,
   Encoder
@@ -53,9 +53,9 @@ const en_train = processedData.trainData.map((item) => item.en)
 const train_x = tf.expandDims(tf.tensor(pt_train[0]), 0)
 const train_y = tf.expandDims(tf.tensor(en_train[0]), 0)
 
-// model.fit([train_x, train_y], [train_x, train_y])
+model.fit([train_x, train_y], train_y)
 
-model.predict([train_x, train_y]).print();
+const result = model.predict([train_x, train_y]).print();
 
 console.log("hello");
 

@@ -140,6 +140,16 @@ class MultiHeadAttention extends tf.layers.Layer {
   getClassName() {
     return "MultiHeadAttention";
   }
+
+  build(inputShape) {
+
+    // this.wq = this.addWeight('wq', [inputShape[0][1], inputShape[0][1]], 'float32', tf.initializers.ones());
+    this.wk = this.addWeight('wk', [inputShape[0][1], inputShape[0][1]], 'float32', tf.initializers.ones());
+    this.wv = this.addWeight('wv', [inputShape[0][1], inputShape[0][1]], 'float32', tf.initializers.ones());
+    this.dense = this.addWeight('dense', [], 'float32', tf.initializers.ones());
+
+
+  }
 }
 
 class BaseAttention extends tf.layers.Layer {
@@ -181,10 +191,6 @@ class CrossAttention extends BaseAttention {
     return normalizedOutput;
   }
 
-  // Define output shape based on input shape
-  computeOutputShape(inputShape) {
-    return inputShape[0];
-  }
 
   gqetClassName() {
     return "CrossAttention";
@@ -209,11 +215,6 @@ class GlobalSelfAttention extends BaseAttention {
     const normalizedOutput = this.layernorm.apply(addedOutput);
 
     return normalizedOutput;
-  }
-
-  // Define output shape based on input shape
-  computeOutputShape(inputShape) {
-    return inputShape;
   }
 
   getClassName() {
@@ -326,6 +327,10 @@ class Encoder extends tf.layers.Layer {
   getClassName() {
     return "Encoder";
   }
+
+  computeOutputShape() {
+    return [null, this.max_tokens, this.d_model];
+  }
 }
 
 // The EncoderLayer class, representing an individual layer within the encoder.
@@ -429,71 +434,76 @@ class Decoder extends tf.layers.Layer {
   getClassName() {
     return "Decoder";
   }
-}
-class Transformer extends tf.layers.Layer {
-  constructor(
-    num_layers,
-    d_model,
-    num_heads,
-    dff,
-    input_vocab_size,
-    target_vocab_size,
-    dropout_rate = 0.1,
-    max_tokens
-  ) {
-    super({ trainable: true });
-    this.encoder = new Encoder(
-      num_layers,
-      d_model,
-      num_heads,
-      dff,
-      input_vocab_size,
-      dropout_rate
-    );
-    this.decoder = new Decoder(
-      num_layers,
-      d_model,
-      num_heads,
-      dff,
-      target_vocab_size,
-      dropout_rate
-    );
-    this.final_layer = tf.layers.dense({
-      units: target_vocab_size,
-      name: "final_layer",
-    });
-    this.max_tokens = max_tokens
-  }
-
-  call(inputs) {
-    // Context is the input sequence
-    // x is the target sequence
-    // Input and Output has shape [batch_size, sequence_length]
-    const [input, output] = inputs; 
-
-    // enc_output shape == (batch_size, input_seq_len, d_model)
-    const enc_output = this.encoder.apply(input); 
-
-    // dec_output shape == (batch_size, output_seq_len, d_model)
-    const dec_output = this.decoder.apply([output, enc_output]); 
-
-    // Final linear layer
-    const logits = this.final_layer.apply(dec_output);
-
-    // Normally, TensorFlow.js doesn't require explicit handling of masks like in the Python version
-    // so we don't do the "del logits._keras_mask" step
-
-    return logits;
-  }
 
   computeOutputShape() {
-    return [1,this.max_tokens]
+    return [null, this.max_tokens, this.d_model];
   }
-
-  getClassName() {
-    return "Transformer";
-  }
+  
 }
+// class Transformer extends tf.layers.Layer {
+//   constructor(
+//     num_layers,
+//     d_model,
+//     num_heads,
+//     dff,
+//     input_vocab_size,
+//     target_vocab_size,
+//     dropout_rate = 0.1,
+//     max_tokens
+//   ) {
+//     super({ trainable: true });
+//     this.encoder = new Encoder(
+//       num_layers,
+//       d_model,
+//       num_heads,
+//       dff,
+//       input_vocab_size,
+//       dropout_rate
+//     );
+//     this.decoder = new Decoder(
+//       num_layers,
+//       d_model,
+//       num_heads,
+//       dff,
+//       target_vocab_size,
+//       dropout_rate
+//     );
+//     this.final_layer = tf.layers.dense({
+//       units: target_vocab_size,
+//       name: "final_layer",
+//     });
+//     this.max_tokens = max_tokens
+//   }
+
+//   call(inputs) {
+//     // Context is the input sequence
+//     // x is the target sequence
+//     // Input and Output has shape [batch_size, sequence_length]
+//     const [input, output] = inputs; 
+
+//     // enc_output shape == (batch_size, input_seq_len, d_model)
+//     const enc_output = this.encoder.apply(input); 
+
+//     // dec_output shape == (batch_size, output_seq_len, d_model)
+//     const dec_output = this.decoder.apply([output, enc_output]); 
+
+//     // Final linear layer
+//     const logits = this.final_layer.apply(dec_output);
+
+//     // Normally, TensorFlow.js doesn't require explicit handling of masks like in the Python version
+//     // so we don't do the "del logits._keras_mask" step
+
+//     return logits;
+//   }
+
+//   computeOutputShape() {
+//     return [1,this.max_tokens]
+//   }
+
+//   getClassName() {
+//     return "Transformer";
+//   }
+// }
 
 class TransformerModel {
   constructor(
@@ -522,27 +532,49 @@ class TransformerModel {
   }
 
   createModel() {
-    const transformer = new Transformer(
-      this.num_layers,
-      this.d_model,
-      this.num_heads,
-      this.dff,
-      this.input_vocab_size,
-      this.target_vocab_size,
-      this.dropout_rate,
-      this.max_tokens
-    );
+    
     // Tensorflow will always add a dimension to your input to account for batchsize
     // The shape of the input is [number_of_samples, sequence_length]
     // The actual input we will need to pass in is [batch_size, number_of_samples, sequence_length]
     const inputLanguage = tf.input({ shape: [this.max_tokens] });
     const outputLanguage = tf.input({ shape: [this.max_tokens] });
 
-    const output = transformer.apply([inputLanguage, outputLanguage]);
+    const encoder = new Encoder(
+      this.num_layers,
+      this.d_model,
+      this.num_heads,
+      this.dff,
+      this.input_vocab_size,
+      this.dropout_rate
+    );
+
+    const decoder = new Decoder(
+      this.num_layers,
+      this.d_model,
+      this.num_heads,
+      this.dff,
+      this.target_vocab_size,
+      this.dropout_rate
+    );
+
+    const final_layer = tf.layers.dense({
+      inputDim: [null, this.max_tokens, this.d_model],
+      units: this.target_vocab_size,
+      name: "final_layer",
+    });
+
+    // enc_output shape == (batch_size, input_seq_len, d_model)
+    const enc_output = encoder.apply(inputLanguage); 
+
+    // dec_output shape == (batch_size, output_seq_len, d_model)
+    const dec_output = decoder.apply([outputLanguage, enc_output]); 
+
+    // Final linear layer
+    const logits = final_layer.apply(dec_output);
 
     return tf.model({
       inputs: [inputLanguage, outputLanguage],
-      outputs: output,
+      outputs: logits,
     });
   }
 }
@@ -557,6 +589,6 @@ export {
   Encoder,
   DecoderLayer,
   Decoder,
-  Transformer,
+  // Transformer,
   TransformerModel,
 };

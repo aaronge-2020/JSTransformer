@@ -27,7 +27,7 @@ function positionalEncoding(length, depth) {
 
 class PositionalEmbedding extends tf.layers.Layer {
   constructor(vocabSize, dModel, config) {
-    super({trainable: true});
+    super({ trainable: true });
     this.dModel = dModel;
     this.embedding = tf.layers.embedding({
       inputDim: vocabSize,
@@ -61,8 +61,8 @@ class PositionalEmbedding extends tf.layers.Layer {
   }
 }
 class MultiHeadAttention extends tf.layers.Layer {
-  constructor(d_model, num_heads, config, causal = false) {
-    super({trainable: true});
+  constructor(d_model, num_heads, causal = false) {
+    super({ trainable: true });
     this.num_heads = num_heads;
     this.d_model = d_model;
     this.causal = causal; // Add this line to include a causal flag
@@ -109,7 +109,8 @@ class MultiHeadAttention extends tf.layers.Layer {
     return reshaped.transpose([0, 2, 1, 3]);
   }
 
-  call(v, k, q) {
+  call(inputs) {
+    const [q, k, v] = inputs;
     const batchSize = q.shape[0];
     const qProcessed = this.wq.apply(q);
     const kProcessed = this.wk.apply(k);
@@ -143,7 +144,7 @@ class MultiHeadAttention extends tf.layers.Layer {
 
 class BaseAttention extends tf.layers.Layer {
   constructor(d_model, num_heads, config, causal = false) {
-    super({trainable: true});
+    super({ trainable: true });
 
     this.mha = new MultiHeadAttention(d_model, num_heads, config, causal);
     this.layernorm = tf.layers.layerNormalization();
@@ -163,7 +164,10 @@ class CrossAttention extends BaseAttention {
     const [x, context] = inputs;
 
     // Forward pass through MultiHeadAttention
-    const [attnOutput, attnScores] = this.mha.apply(x, context, context, null);
+    const [attnOutput, attnScores] = this.mha.apply(
+      [x, context, context],
+      null
+    );
 
     // Cache the attention scores for later use or plotting
     this.lastAttnScores = attnScores;
@@ -181,6 +185,10 @@ class CrossAttention extends BaseAttention {
   computeOutputShape(inputShape) {
     return inputShape[0];
   }
+
+  gqetClassName() {
+    return "CrossAttention";
+  }
 }
 
 class GlobalSelfAttention extends BaseAttention {
@@ -192,7 +200,7 @@ class GlobalSelfAttention extends BaseAttention {
     const x = inputs;
 
     // Forward pass through MultiHeadAttention
-    const [attnOutput, attnScores] = this.mha.apply(x, x, x);
+    const [attnOutput, attnScores] = this.mha.apply([x, x, x]);
 
     // Add the output to the original input (Residual connection)
     const addedOutput = this.add.apply([x, attnOutput]);
@@ -207,6 +215,10 @@ class GlobalSelfAttention extends BaseAttention {
   computeOutputShape(inputShape) {
     return inputShape;
   }
+
+  getClassName() {
+    return "GlobalSelfAttention";
+  }
 }
 
 class CausalSelfAttention extends BaseAttention {
@@ -216,13 +228,17 @@ class CausalSelfAttention extends BaseAttention {
 
   call(x) {
     // Multi-head attention layer with causal mask enabled
-    const [attnOutput, _] = this.mha.apply(x, x, x);
+    const [attnOutput, _] = this.mha.apply([x, x, x]);
 
     // Add & normalize layer
     const addOutput = this.add.apply([x, attnOutput]);
     const output = this.layernorm.apply(addOutput);
 
     return output;
+  }
+
+  getClassName() {
+    return "CausalSelfAttention";
   }
 }
 class FeedForward extends tf.layers.Layer {
@@ -238,7 +254,7 @@ class FeedForward extends tf.layers.Layer {
     */
 
   constructor(dModel, dff, dropoutRate = 0.1) {
-    super({trainable: true});
+    super({ trainable: true });
     this.seq = tf.sequential();
     this.seq.add(
       tf.layers.dense({ units: dff, activation: "relu", inputDim: dModel })
@@ -260,23 +276,7 @@ class FeedForward extends tf.layers.Layer {
   }
 }
 
-class EncoderLayer extends tf.layers.Layer {
-  constructor(d_model, num_heads, dff, dropout_rate = 0.1) {
-    super({trainable: true});
-    this.self_attention = new GlobalSelfAttention(d_model, num_heads);
-    this.ffn = new FeedForward(d_model, dff);
-  }
-
-  call(inputs) {
-    let x = this.self_attention.apply(inputs);
-    x = this.ffn.apply(x);
-    return x;
-  }
-  getClassName() {
-    return "EncoderLayer";
-  }
-}
-
+// The Encoder class extends the tf.layers.Layer class, allowing us to create a custom layer in TensorFlow.js.
 class Encoder extends tf.layers.Layer {
   constructor(
     num_layers,
@@ -286,41 +286,79 @@ class Encoder extends tf.layers.Layer {
     vocab_size,
     dropout_rate = 0.1
   ) {
-    super({trainable: true});
+    super(); // Calling the super class constructor (tf.layers.Layer)
+
+    // Storing the input parameters as class properties.
     this.d_model = d_model;
     this.num_layers = num_layers;
 
+    // Initializing PositionalEmbedding layer with vocab_size and d_model.
     this.pos_embedding = new PositionalEmbedding(vocab_size, d_model);
 
+    // Creating an array of EncoderLayer instances, with each instance being initialized with the provided parameters.
     this.enc_layers = Array.from(
       { length: num_layers },
-      () => new EncoderLayer(d_model, num_heads, dff, dropout_rate)
+      () => new EncoderLayer(d_model, num_heads, dff)
     );
 
+    // Initializing a dropout layer with the specified dropout rate.
     this.dropout = tf.layers.dropout({ rate: dropout_rate });
   }
 
-  call(inputs) {
-    let x = this.pos_embedding.apply(inputs); // Assuming shape `(batch_size, seq_len, d_model)`.
+  // The call method is responsible for forward propagation in the Encoder layer.
+  call(x) {
+    // Applying the positional embedding to the input x.
+    x = this.pos_embedding.apply(x); // Expected input shape: (batch_size, sequence_length), output shape: (batch_size, sequence_length, d_model)
 
-    // Add dropout
-    x = this.dropout.apply(x);
+    // Applying dropout to the output of the positional embedding layer.
+    x = this.dropout.apply(x); // Applies dropout to reduce overfitting.
 
+    // Iterating through the EncoderLayer instances and applying them sequentially to the input.
     for (let i = 0; i < this.num_layers; i++) {
-      x = this.enc_layers[i].apply(x);
+      x = this.enc_layers[i].apply(x); // Expected input/output shape: (batch_size, sequence_length, d_model)
     }
 
-    return x; // Should have shape `(batch_size, seq_len, d_model)`.
+    // Returning the output tensor.
+    return x; // Output shape: (batch_size, sequence_length, d_model)
   }
 
+  // Method to return the class name as a string.
   getClassName() {
     return "Encoder";
   }
 }
 
+// The EncoderLayer class, representing an individual layer within the encoder.
+class EncoderLayer extends tf.layers.Layer {
+  constructor(d_model, num_heads, dff) {
+    super(); // Calling the super class constructor (tf.layers.Layer)
+
+    // Initializing the global self attention and feed forward layers with the specified parameters.
+    this.self_attention = new GlobalSelfAttention(d_model, num_heads);
+    this.ffn = new FeedForward(d_model, dff);
+  }
+
+  // The call method is responsible for forward propagation in the EncoderLayer.
+  call(x) {
+    // Applying self attention to the input tensor x.
+    x = this.self_attention.apply(x); // Expected input/output shape: (batch_size, sequence_length, d_model)
+
+    // Applying the feedforward neural network to the output of the self attention layer.
+    x = this.ffn.apply(x); // Expected input/output shape: (batch_size, sequence_length, d_model)
+
+    // Returning the output tensor.
+    return x; // Output shape: (batch_size, sequence_length, d_model)
+  }
+
+  // Method to return the class name as a string.
+  getClassName() {
+    return "EncoderLayer";
+  }
+}
+
 class DecoderLayer extends tf.layers.Layer {
   constructor(d_model, num_heads, dff, dropout_rate = 0.1) {
-    super({trainable: true});
+    super({ trainable: true });
     this.causalSelfAttention = new CausalSelfAttention(
       d_model,
       num_heads,
@@ -358,7 +396,7 @@ class Decoder extends tf.layers.Layer {
     vocab_size,
     dropout_rate = 0.1
   ) {
-    super({trainable: true});
+    super({ trainable: true });
     this.d_model = d_model;
     this.num_layers = num_layers;
 
@@ -373,10 +411,9 @@ class Decoder extends tf.layers.Layer {
   }
 
   call(inputs) {
-
     const [x, context] = inputs;
 
-    let out = this.pos_embedding.apply(x); 
+    let out = this.pos_embedding.apply(x);
 
     out = this.dropout.apply(out);
 
@@ -386,7 +423,6 @@ class Decoder extends tf.layers.Layer {
 
     this.last_attn_scores = this.dec_layers[this.num_layers - 1].lastAttnScores;
 
-    
     return out;
   }
 
@@ -395,23 +431,52 @@ class Decoder extends tf.layers.Layer {
   }
 }
 class Transformer extends tf.layers.Layer {
-  constructor(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate=0.1) {
-    super({trainable: true});
-    this.encoder = new Encoder(num_layers, d_model, num_heads, dff, input_vocab_size, dropout_rate);
-    this.decoder = new Decoder(num_layers, d_model, num_heads, dff, target_vocab_size, dropout_rate);
-    this.final_layer = tf.layers.dense({ units: target_vocab_size, name: "final_layer" });
+  constructor(
+    num_layers,
+    d_model,
+    num_heads,
+    dff,
+    input_vocab_size,
+    target_vocab_size,
+    dropout_rate = 0.1
+  ) {
+    super({ trainable: true });
+    this.encoder = new Encoder(
+      num_layers,
+      d_model,
+      num_heads,
+      dff,
+      input_vocab_size,
+      dropout_rate
+    );
+    this.decoder = new Decoder(
+      num_layers,
+      d_model,
+      num_heads,
+      dff,
+      target_vocab_size,
+      dropout_rate
+    );
+    this.final_layer = tf.layers.dense({
+      units: target_vocab_size,
+      name: "final_layer",
+    });
   }
 
   call(inputs) {
     // Context is the input sequence
     // x is the target sequence
-    const [input, output] = inputs;
+    // Input and Output has shape [batch_size, sequence_length]
+    const [input, output] = inputs; 
 
-    const enc_output = this.encoder.call(input);  // (batch_size, context_len, d_model)
-    const dec_output = this.decoder.call([output, enc_output]);  // (batch_size, target_len, d_model)
+    // enc_output shape == (batch_size, input_seq_len, d_model)
+    const enc_output = this.encoder.apply(input); 
+
+    // dec_output shape == (batch_size, output_seq_len, d_model)
+    const dec_output = this.decoder.apply([output, enc_output]); 
 
     // Final linear layer
-    const logits = this.final_layer.apply(dec_output);  // (batch_size, target_len, target_vocab_size)
+    const logits = this.final_layer.apply(dec_output);
 
     // Normally, TensorFlow.js doesn't require explicit handling of masks like in the Python version
     // so we don't do the "del logits._keras_mask" step
@@ -420,12 +485,23 @@ class Transformer extends tf.layers.Layer {
   }
 
   getClassName() {
-    return 'Transformer';
+    return "Transformer";
   }
 }
 
 class TransformerModel {
-  constructor(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate, contextLen, targetLen, max_tokens = 60) {
+  constructor(
+    num_layers,
+    d_model,
+    num_heads,
+    dff,
+    input_vocab_size,
+    target_vocab_size,
+    dropout_rate,
+    contextLen,
+    targetLen,
+    max_tokens = 60
+  ) {
     this.num_layers = num_layers;
     this.d_model = d_model;
     this.num_heads = num_heads;
@@ -448,18 +524,22 @@ class TransformerModel {
       this.input_vocab_size,
       this.target_vocab_size,
       this.dropout_rate,
-      this.max_tokens = this.max_tokens,
+      (this.max_tokens = this.max_tokens)
     );
+    // Tensorflow will always add a dimension to your input to account for batchsize
+    // The shape of the input is [number_of_samples, sequence_length]
+    // The actual input we will need to pass in is [batch_size, number_of_samples, sequence_length]
+    const inputLanguage = tf.input({ shape: [this.max_tokens] });
+    const outputLanguage = tf.input({ shape: [this.max_tokens] });
 
-    const inputContext = tf.input({ shape: [null, this.max_tokens] });
-    const inputX = tf.input({ shape: [null, this.max_tokens] });
+    const output = transformer.apply([inputLanguage, outputLanguage]);
 
-    const output = transformer.apply([inputContext, inputX]);
-
-    return tf.model({ inputs: [inputContext, inputX], outputs: output });
+    return tf.model({
+      inputs: [inputLanguage, outputLanguage],
+      outputs: output,
+    });
   }
 }
-
 
 export {
   positionalEncoding,

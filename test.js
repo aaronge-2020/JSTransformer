@@ -40,13 +40,6 @@ const jsonData = await response.json();
 
 const processedData = processJson(jsonData, MAX_TOKENS)
 
-
-function convertToTensor(arr) {
-  arr = tf.tensor(arr); // Convert to 0-padded dense Tensor
-  return arr;
-;
-}
-
 const pt_train = processedData.trainData.map((item) => item.pt)
 
 const en_train = processedData.trainData.map((item) => item.en)

@@ -484,6 +484,10 @@ class Transformer extends tf.layers.Layer {
     return logits;
   }
 
+  computeOutputShape() {
+    return [1,60,28021]
+  }
+
   getClassName() {
     return "Transformer";
   }

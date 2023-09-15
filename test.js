@@ -15,7 +15,7 @@ const tf = await import("https://esm.sh/@tensorflow/tfjs@4.10.0");
 const num_layers = 4
 const d_model = 64
 
-// The dff is the
+// The dff is the node size of the feed forward network
 const dff = 128
 const num_heads = 8
 const dropout_rate = 0.1
@@ -33,7 +33,7 @@ model.compile({
   metrics: ['accuracy']
 });
 
-const response = await fetch('http://127.0.0.1:5500/data.json');
+const response = await fetch('https://aaronge-2020.github.io/data.json');
 
 
 const jsonData = await response.json();

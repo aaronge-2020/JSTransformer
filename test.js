@@ -25,6 +25,7 @@ const target_vocab_size = 28021
 
 const MAX_TOKENS = 60;
 
+
 const transformerModel = new TransformerModel(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate, input_vocab_size, target_vocab_size, MAX_TOKENS);
 const model = transformerModel.model;
 model.compile({
@@ -48,14 +49,46 @@ const en_train = processedData.trainData.map((item) => item.en)
 
 // const en_train = processedData.trainData.map((batch) => batch.map((item) => item.en))
 
+const batch_size = 10;
 
 
-const train_x = tf.expandDims(tf.tensor(pt_train[0]), 0)
-const train_y = tf.expandDims(tf.tensor(en_train[0]), 0)
+const train_x = tf.tensor(pt_train.slice(0, batch_size))
+const train_y = tf.tensor(en_train.slice(0, batch_size))
 
-model.fit([train_x, train_y], train_y)
+const seq_len = en_train[0].length; // assuming all items have the same length
 
-const result = model.predict([train_x, train_y]).print();
+let word_probs_label = new Array(batch_size).fill(null).map(() =>
+  new Array(seq_len).fill(null).map(() =>
+    new Array(target_vocab_size).fill(0)
+  )
+);
+
+en_train.slice(0,batch_size).forEach((batch, batchIndex) => {
+  batch.forEach((token, tokenIndex) => {
+    if (token < target_vocab_size) {
+      word_probs_label[batchIndex][tokenIndex][token] = 1;
+    }
+  });
+});
+
+console.log(word_probs_label);
+
+
+// The model will output [batch_size, seq_len, vocab_size] so we have to reshape word_probs_label to match that. The word_probs_label should have the probability of each word in the vocab for each token in the sequence. 
+// The third dimension of word_probs_label should be the vocab size with each value being the probability of that word being the next word in the sequence. The current value of the second dimension is the index of the word in the vocab so that will have a probability of 1 while the rest will be 0.
+
+
+
+
+model.summary();
+// const result = model.predict([train_x, train_y]).print();
+
+await model.fit([train_x, train_y], tf.tensor(word_probs_label), {
+  batch_size: batch_size,
+})
+
+
+
 
 console.log("hello");
 

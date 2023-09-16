@@ -141,15 +141,6 @@ class MultiHeadAttention extends tf.layers.Layer {
     return "MultiHeadAttention";
   }
 
-  build(inputShape) {
-
-    // this.wq = this.addWeight('wq', [inputShape[0][1], inputShape[0][1]], 'float32', tf.initializers.ones());
-    this.wk = this.addWeight('wk', [inputShape[0][1], inputShape[0][1]], 'float32', tf.initializers.ones());
-    this.wv = this.addWeight('wv', [inputShape[0][1], inputShape[0][1]], 'float32', tf.initializers.ones());
-    this.dense = this.addWeight('dense', [], 'float32', tf.initializers.ones());
-
-
-  }
 }
 
 class BaseAttention extends tf.layers.Layer {
@@ -331,6 +322,25 @@ class Encoder extends tf.layers.Layer {
   computeOutputShape() {
     return [null, this.max_tokens, this.d_model];
   }
+
+  
+  build(inputShape) {
+
+    // Write code to add weights for wq, wk, and wv for each layer in the encoderlayer's enc_layers array and for the dense layer in the feedforward network. 
+
+    for (let i = 0; i < this.num_layers; i++) {
+      this.res1 = this.enc_layers[i].self_attention.mha.wq.addWeight('wq', [inputShape[1], inputShape[1]], 'float32', tf.initializers.glorotNormal());
+    
+      this.res2 = this.enc_layers[i].self_attention.mha.wk.addWeight('wk', [inputShape[1], inputShape[1]], 'float32', tf.initializers.glorotNormal());
+
+      this.res3 = this.enc_layers[i].self_attention.mha.wv.addWeight('wv', [inputShape[1], inputShape[1]], 'float32', tf.initializers.glorotNormal());
+
+      this.res4 = this.enc_layers[i].self_attention.mha.dense.addWeight('dense', [], 'float32', tf.initializers.glorotNormal());
+   
+    }
+
+  }
+
 }
 
 // The EncoderLayer class, representing an individual layer within the encoder.
@@ -359,6 +369,8 @@ class EncoderLayer extends tf.layers.Layer {
   getClassName() {
     return "EncoderLayer";
   }
+
+
 }
 
 class DecoderLayer extends tf.layers.Layer {
@@ -560,6 +572,7 @@ class TransformerModel {
     const final_layer = tf.layers.dense({
       inputDim: [null, this.max_tokens, this.d_model],
       units: this.target_vocab_size,
+      computeOutputShape: [null, this.max_tokens, this.target_vocab_size],
       name: "final_layer",
     });
 

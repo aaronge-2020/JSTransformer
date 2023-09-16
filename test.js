@@ -1,9 +1,7 @@
 import {
   // Transformer,
   TransformerModel,
-  MultiHeadAttention,
-  Encoder
-} from "./transformer.js";
+} from "./transformerv2.js";
 
 import {
   processJson

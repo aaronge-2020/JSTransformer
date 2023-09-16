@@ -141,6 +141,15 @@ class MultiHeadAttention extends tf.layers.Layer {
     return "MultiHeadAttention";
   }
 
+  build(inputShape) {
+
+    const res1 = this.wq.addWeight('wq', [inputShape[0][1], inputShape[0][1]], 'float32', tf.initializers.glorotNormal());
+    const res2 = this.wk.addWeight('wk', [inputShape[0][1], inputShape[0][1]], 'float32', tf.initializers.glorotNormal());
+    const res3 = this.wv.addWeight('wv', [inputShape[0][1], inputShape[0][1]], 'float32', tf.initializers.glorotNormal());
+    const res4 = this.dense.addWeight('dense', [this.d_model], 'float32', tf.initializers.glorotNormal());
+
+
+  }
 }
 
 class BaseAttention extends tf.layers.Layer {
@@ -183,7 +192,7 @@ class CrossAttention extends BaseAttention {
   }
 
 
-  gqetClassName() {
+  getClassName() {
     return "CrossAttention";
   }
 }
@@ -322,25 +331,6 @@ class Encoder extends tf.layers.Layer {
   computeOutputShape() {
     return [null, this.max_tokens, this.d_model];
   }
-
-  
-  build(inputShape) {
-
-    // Write code to add weights for wq, wk, and wv for each layer in the encoderlayer's enc_layers array and for the dense layer in the feedforward network. 
-
-    for (let i = 0; i < this.num_layers; i++) {
-      this.res1 = this.enc_layers[i].self_attention.mha.wq.addWeight('wq', [inputShape[1], inputShape[1]], 'float32', tf.initializers.glorotNormal());
-    
-      this.res2 = this.enc_layers[i].self_attention.mha.wk.addWeight('wk', [inputShape[1], inputShape[1]], 'float32', tf.initializers.glorotNormal());
-
-      this.res3 = this.enc_layers[i].self_attention.mha.wv.addWeight('wv', [inputShape[1], inputShape[1]], 'float32', tf.initializers.glorotNormal());
-
-      this.res4 = this.enc_layers[i].self_attention.mha.dense.addWeight('dense', [], 'float32', tf.initializers.glorotNormal());
-   
-    }
-
-  }
-
 }
 
 // The EncoderLayer class, representing an individual layer within the encoder.
@@ -369,8 +359,6 @@ class EncoderLayer extends tf.layers.Layer {
   getClassName() {
     return "EncoderLayer";
   }
-
-
 }
 
 class DecoderLayer extends tf.layers.Layer {
@@ -452,70 +440,6 @@ class Decoder extends tf.layers.Layer {
   }
   
 }
-// class Transformer extends tf.layers.Layer {
-//   constructor(
-//     num_layers,
-//     d_model,
-//     num_heads,
-//     dff,
-//     input_vocab_size,
-//     target_vocab_size,
-//     dropout_rate = 0.1,
-//     max_tokens
-//   ) {
-//     super({ trainable: true });
-//     this.encoder = new Encoder(
-//       num_layers,
-//       d_model,
-//       num_heads,
-//       dff,
-//       input_vocab_size,
-//       dropout_rate
-//     );
-//     this.decoder = new Decoder(
-//       num_layers,
-//       d_model,
-//       num_heads,
-//       dff,
-//       target_vocab_size,
-//       dropout_rate
-//     );
-//     this.final_layer = tf.layers.dense({
-//       units: target_vocab_size,
-//       name: "final_layer",
-//     });
-//     this.max_tokens = max_tokens
-//   }
-
-//   call(inputs) {
-//     // Context is the input sequence
-//     // x is the target sequence
-//     // Input and Output has shape [batch_size, sequence_length]
-//     const [input, output] = inputs; 
-
-//     // enc_output shape == (batch_size, input_seq_len, d_model)
-//     const enc_output = this.encoder.apply(input); 
-
-//     // dec_output shape == (batch_size, output_seq_len, d_model)
-//     const dec_output = this.decoder.apply([output, enc_output]); 
-
-//     // Final linear layer
-//     const logits = this.final_layer.apply(dec_output);
-
-//     // Normally, TensorFlow.js doesn't require explicit handling of masks like in the Python version
-//     // so we don't do the "del logits._keras_mask" step
-
-//     return logits;
-//   }
-
-//   computeOutputShape() {
-//     return [1,this.max_tokens]
-//   }
-
-//   getClassName() {
-//     return "Transformer";
-//   }
-// }
 
 class TransformerModel {
   constructor(

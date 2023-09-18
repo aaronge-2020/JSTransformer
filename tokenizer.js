@@ -1,58 +1,42 @@
-let vocabularyEn = { "<PAD>": 0};
-let vocabularyPt = { "<PAD>": 0 };
-let intToTokenEn = { 0: "<PAD>" };
-let intToTokenPt = { 0: "<PAD>" };
+let vocabularyEn = { "<PAD>": 0, "<START>": 1, "<END>": 2 };
+let vocabularyPt = { "<PAD>": 0, "<START>": 1, "<END>": 2 };
+let intToTokenEn = { 0: "<PAD>", 1: "<START>", 2: "<END>" };
+let intToTokenPt = { 0: "<PAD>", 1: "<START>", 2: "<END>" };
 
 function buildVocabulary(tokenizedData) {
   tokenizedData.forEach((item) => {
-    item.en.forEach(
-      (token) => (vocabularyEn[token] = (vocabularyEn[token] || 0) + 1)
-    );
-    item.pt.forEach(
-      (token) => (vocabularyPt[token] = (vocabularyPt[token] || 0) + 1)
-    );
+    item.en.forEach((token) => {
+      vocabularyEn[token] = (vocabularyEn[token] || 0) + 1;
+    });
+    item.pt.forEach((token) => {
+      vocabularyPt[token] = (vocabularyPt[token] || 0) + 1;
+    });
   });
 }
 
 function convertTokensToIntegers(tokenizedData, max_tokens = 50) {
-    vocabularyEn["<START>"] = 1;
-    vocabularyEn["<END>"] = 2;
-    vocabularyPt["<START>"] = 1;
-    vocabularyPt["<END>"] = 2;
-  
-    const vocabArrayEn = Object.keys(vocabularyEn);
-    const vocabArrayPt = Object.keys(vocabularyPt);
-    const tokenToIntEn = { "<START>": 1, "<END>": 2 };
-    const tokenToIntPt = { "<START>": 1, "<END>": 2 };
-  
-    vocabArrayEn.forEach((token, index) => {
-      if (token !== "<START>" && token !== "<END>") {
-        tokenToIntEn[token] = index + 3; 
-        intToTokenEn[index + 3] = token;
-      }
-    });
-  
-    vocabArrayPt.forEach((token, index) => {
-      if (token !== "<START>" && token !== "<END>") {
-        tokenToIntPt[token] = index + 3; 
-        intToTokenPt[index + 3] = token;
-      }
-    });
+  const tokenToIntEn = {};
+  const tokenToIntPt = {};
+  const vocabArrayEn = Object.keys(vocabularyEn);
+  const vocabArrayPt = Object.keys(vocabularyPt);
+
+  vocabArrayEn.forEach((token, index) => {
+    tokenToIntEn[token] = index;
+    intToTokenEn[index] = token;
+  });
+
+  vocabArrayPt.forEach((token, index) => {
+    tokenToIntPt[token] = index;
+    intToTokenPt[index] = token;
+  });
+
   return tokenizedData.map((item) => ({
     en: padSequence(
-      [
-        tokenToIntEn["<START>"],
-        ...item.en.map((token) => tokenToIntEn[token] || 3),
-        tokenToIntEn["<END>"],
-      ],
+      [tokenToIntEn["<START>"], ...item.en.map((token) => tokenToIntEn[token] || tokenToIntEn["<PAD>"]), tokenToIntEn["<END>"]],
       max_tokens
     ),
     pt: padSequence(
-      [
-        tokenToIntPt["<START>"],
-        ...item.pt.map((token) => tokenToIntPt[token] || 3),
-        tokenToIntPt["<END>"],
-      ],
+      [tokenToIntPt["<START>"], ...item.pt.map((token) => tokenToIntPt[token] || tokenToIntPt["<PAD>"]), tokenToIntPt["<END>"]],
       max_tokens
     ),
   }));
@@ -60,7 +44,7 @@ function convertTokensToIntegers(tokenizedData, max_tokens = 50) {
 
 function padSequence(sequence, length) {
   while (sequence.length < length) {
-    sequence.push(0);
+    sequence.push(vocabularyEn["<PAD>"]);
   }
   return sequence.slice(0, length);
 }
@@ -68,6 +52,7 @@ function padSequence(sequence, length) {
 function detokenizeSentence(tokenizedIntegers, intToToken) {
   return tokenizedIntegers.map((int) => intToToken[int] || "").join(" ");
 }
+
 
 function tokenizeSentence(sentence) {
   // Unicode normalization

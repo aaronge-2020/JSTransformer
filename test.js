@@ -79,7 +79,7 @@ console.log(word_probs_label);
 
 
 model.summary();
-// const result = model.predict([train_x, train_y]).print();
+const result = model.predict([train_x, train_y]).print();
 
 await model.fit([train_x, train_y], tf.tensor(word_probs_label), {
   batch_size: batch_size,

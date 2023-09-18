@@ -1,4 +1,4 @@
-let vocabularyEn = { "<PAD>": 0 };
+let vocabularyEn = { "<PAD>": 0};
 let vocabularyPt = { "<PAD>": 0 };
 let intToTokenEn = { 0: "<PAD>" };
 let intToTokenPt = { 0: "<PAD>" };

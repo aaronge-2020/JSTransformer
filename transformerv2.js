@@ -331,19 +331,19 @@ function createMultiHeadAttentionLayer(d_model, num_heads, causal) {
     const kProcessed = wk.apply(k);
     const vProcessed = wv.apply(v);
 
-    const customAttentionLayer = new splitHeadsAndComputeAttention({
+    const splitHeadsAndComputeAttention = new SplitHeadsAndComputeAttention({
       d_model: d_model,
       num_heads: num_heads,
       depth: depth,
       causal: causal,
     });
 
-    return customAttentionLayer.apply([qProcessed, kProcessed, vProcessed, q]);
+    return splitHeadsAndComputeAttention.apply([qProcessed, kProcessed, vProcessed, q]);
   };
 }
 
 // I need to have this class or else my model will not compile, because I will be doing matrix operations with symbolic tensors
-class splitHeadsAndComputeAttention extends tf.layers.Layer {
+class SplitHeadsAndComputeAttention extends tf.layers.Layer {
   constructor({ d_model, num_heads, depth, causal = false }) {
     super({});
     this.d_model = d_model;

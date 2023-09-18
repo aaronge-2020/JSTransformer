@@ -25,416 +25,6 @@ function positionalEncoding(length, depth) {
   return posEncoding.toFloat();
 }
 
-class PositionalEmbedding extends tf.layers.Layer {
-  constructor(vocabSize, dModel) {
-    super({ trainable: true });
-    this.dModel = dModel;
-    this.embedding = tf.layers.embedding({
-      inputDim: vocabSize,
-      outputDim: dModel,
-      maskZero: true,
-    });
-    this.posEncoding = positionalEncoding(vocabSize, dModel);
-  }
-
-  call(inputs) {
-    let input = inputs;
-    if (Array.isArray(input)) {
-      input = input[0];
-    }
-
-    const length = input.shape[1];
-    let x = this.embedding.apply(input);
-
-    // This factor sets the relative scale of the embedding and positionalEncoding
-    x = x.mul(tf.sqrt(tf.scalar(this.dModel, "float32")));
-
-    // We need to slice the positional encoding, because the original shape is [2048, 512], where 2048 is the max sequence length and 512 is the embedding size
-    const posEncodingSliced = this.posEncoding.slice([0, 0], [length, -1]);
-    x = x.add(posEncodingSliced);
-
-    return x;
-  }
-
-  getClassName() {
-    return "PositionalEmbedding";
-  }
-}
-class MultiHeadAttention extends tf.layers.Layer {
-  constructor(d_model, num_heads, causal = false) {
-    super({ trainable: true });
-    this.num_heads = num_heads;
-    this.d_model = d_model;
-    this.causal = causal; // Add this line to include a causal flag
-    if (d_model % this.num_heads !== 0) {
-      throw new Error("d_model must be divisible by num_heads");
-    }
-    this.depth = Math.floor(d_model / this.num_heads);
-
-    this.wq = tf.layers.dense({ units: d_model });
-    this.wk = tf.layers.dense({ units: d_model });
-    this.wv = tf.layers.dense({ units: d_model });
-    this.dense = tf.layers.dense({ units: d_model });
-  }
-
-  scaledDotProductAttention(q, k, v) {
-    const matmulQK = tf.matMul(q, k.transpose([0, 1, 3, 2]));
-    const dk = k.shape[k.shape.length - 1];
-    let scaledAttentionLogits = matmulQK.div(tf.sqrt(dk));
-
-    // Apply causal mask if required
-    if (this.causal) {
-      const seqLen =
-        scaledAttentionLogits.shape[scaledAttentionLogits.shape.length - 2];
-      const upperTriangular = tf.linalg.bandPart(
-        tf.ones([seqLen, seqLen]),
-        0,
-        -1
-      );
-      const identityMatrix = tf.eye(seqLen);
-      const causalMask = upperTriangular.sub(identityMatrix);
-      scaledAttentionLogits = scaledAttentionLogits.add(
-        causalMask.mul(tf.scalar(-1e9))
-      );
-    }
-
-    const attentionWeights = tf.softmax(scaledAttentionLogits, -1);
-    const output = tf.matMul(attentionWeights, v);
-
-    return [output, attentionWeights];
-  }
-
-  splitHeads(x, batch_size) {
-    const reshaped = x.reshape([batch_size, -1, this.num_heads, this.depth]);
-    return reshaped.transpose([0, 2, 1, 3]);
-  }
-
-  call(inputs) {
-    const [q, k, v] = inputs;
-    const batchSize = q.shape[0];
-    const qProcessed = this.wq.apply(q);
-    const kProcessed = this.wk.apply(k);
-    const vProcessed = this.wv.apply(v);
-
-    const qSplit = this.splitHeads(qProcessed, batchSize);
-    const kSplit = this.splitHeads(kProcessed, batchSize);
-    const vSplit = this.splitHeads(vProcessed, batchSize);
-
-    const [scaledAttention, attentionWeights] = this.scaledDotProductAttention(
-      qSplit,
-      kSplit,
-      vSplit
-    );
-
-    const scaledAttentionTransposed = scaledAttention.transpose([0, 2, 1, 3]);
-    const concatAttention = scaledAttentionTransposed.reshape([
-      batchSize,
-      -1,
-      this.d_model,
-    ]);
-    const output = this.dense.apply(concatAttention);
-
-    return [output, attentionWeights];
-  }
-
-  getClassName() {
-    return "MultiHeadAttention";
-  }
-}
-
-class BaseAttention extends tf.layers.Layer {
-  constructor(d_model, num_heads, config, causal = false) {
-    super({ trainable: true });
-
-    this.mha = new MultiHeadAttention(d_model, num_heads, config, causal);
-    this.layernorm = tf.layers.layerNormalization();
-    this.add = tf.layers.add();
-  }
-
-  getClassName() {
-    return "BaseAttention";
-  }
-}
-
-class CrossAttention extends BaseAttention {
-  constructor(d_model, num_heads, config) {
-    super(d_model, num_heads, config);
-  }
-  call(inputs, kwargs) {
-    const [x, context] = inputs;
-
-    // Forward pass through MultiHeadAttention
-    const [attnOutput, attnScores] = this.mha.apply(
-      [x, context, context],
-      null
-    );
-
-    // Cache the attention scores for later use or plotting
-    this.lastAttnScores = attnScores;
-
-    // Add the output to the original input (Residual connection)
-    const addedOutput = this.add.apply([x, attnOutput]);
-
-    // Layer normalization
-    const normalizedOutput = this.layernorm.apply(addedOutput);
-
-    return normalizedOutput;
-  }
-
-  getClassName() {
-    return "CrossAttention";
-  }
-}
-
-class GlobalSelfAttention extends BaseAttention {
-  constructor(d_model, num_heads, config) {
-    super(d_model, num_heads, config);
-  }
-
-  call(inputs, kwargs) {
-    const x = inputs;
-
-    // Forward pass through MultiHeadAttention
-    const [attnOutput, attnScores] = this.mha.apply([x, x, x]);
-
-    // Add the output to the original input (Residual connection)
-    const addedOutput = this.add.apply([x, attnOutput]);
-
-    // Layer normalization
-    const normalizedOutput = this.layernorm.apply(addedOutput);
-
-    return normalizedOutput;
-  }
-
-  getClassName() {
-    return "GlobalSelfAttention";
-  }
-}
-
-class CausalSelfAttention extends BaseAttention {
-  constructor(d_model, num_heads, config) {
-    super(d_model, num_heads, config, true); // Enable causal attention by setting the last argument to true
-  }
-
-  call(x) {
-    // Multi-head attention layer with causal mask enabled
-    const [attnOutput, _] = this.mha.apply([x, x, x]);
-
-    // Add & normalize layer
-    const addOutput = this.add.apply([x, attnOutput]);
-    const output = this.layernorm.apply(addOutput);
-
-    return output;
-  }
-
-  getClassName() {
-    return "CausalSelfAttention";
-  }
-}
-class FeedForward extends tf.layers.Layer {
-  /*
-  
-      Implements the feedforward network used in the transformer.
-  
-      Args:
-          dModel: Depth of the input vector
-          dff: Hidden layer size
-          dropoutRate: Dropout rate
-  
-      */
-
-  constructor(dModel, dff, dropoutRate = 0.1) {
-    super({ trainable: true });
-    this.seq = tf.sequential();
-    this.seq.add(
-      tf.layers.dense({ units: dff, activation: "relu", inputDim: dModel })
-    );
-    this.seq.add(tf.layers.dense({ units: dModel }));
-    this.seq.add(tf.layers.dropout({ rate: dropoutRate }));
-    this.layerNorm = tf.layers.layerNormalization();
-  }
-
-  call(x) {
-    const seqOutput = this.seq.apply(x);
-    x = tf.add(x, seqOutput);
-    x = this.layerNorm.apply(x);
-    return x;
-  }
-
-  getClassName() {
-    return "FeedForward";
-  }
-}
-
-// The Encoder class extends the tf.layers.Layer class, allowing us to create a custom layer in TensorFlow.js.
-class Encoder extends tf.layers.Layer {
-  constructor(
-    num_layers,
-    d_model,
-    num_heads,
-    dff,
-    vocab_size,
-    dropout_rate = 0.1
-  ) {
-    super(); // Calling the super class constructor (tf.layers.Layer)
-
-    // Storing the input parameters as class properties.
-    this.d_model = d_model;
-    this.num_layers = num_layers;
-
-    // Initializing PositionalEmbedding layer with vocab_size and d_model.
-    this.pos_embedding = new PositionalEmbedding(vocab_size, d_model);
-
-    // Creating an array of EncoderLayer instances, with each instance being initialized with the provided parameters.
-    this.enc_layers = Array.from(
-      { length: num_layers },
-      () => new EncoderLayer(d_model, num_heads, dff)
-    );
-
-    // Initializing a dropout layer with the specified dropout rate.
-    this.dropout = tf.layers.dropout({ rate: dropout_rate });
-  }
-
-  // The call method is responsible for forward propagation in the Encoder layer.
-  call(x) {
-    // Applying the positional embedding to the input x.
-    x = this.pos_embedding.apply(x); // Expected input shape: (batch_size, sequence_length), output shape: (batch_size, sequence_length, d_model)
-
-    // Applying dropout to the output of the positional embedding layer.
-    x = this.dropout.apply(x); // Applies dropout to reduce overfitting.
-
-    // Iterating through the EncoderLayer instances and applying them sequentially to the input.
-    for (let i = 0; i < this.num_layers; i++) {
-      x = this.enc_layers[i].apply(x); // Expected input/output shape: (batch_size, sequence_length, d_model)
-    }
-
-    // Returning the output tensor.
-    return x; // Output shape: (batch_size, sequence_length, d_model)
-  }
-
-  // Method to return the class name as a string.
-  getClassName() {
-    return "Encoder";
-  }
-
-  computeOutputShape() {
-    return [null, this.max_tokens, this.d_model];
-  }
-}
-
-// The EncoderLayer class, representing an individual layer within the encoder.
-class EncoderLayer extends tf.layers.Layer {
-  constructor(d_model, num_heads, dff, vocab_size) {
-    super(); // Calling the super class constructor (tf.layers.Layer)
-
-    // Initializing the global self attention and feed forward layers with the specified parameters.
-    this.self_attention = new GlobalSelfAttention(d_model, num_heads);
-    this.ffn = new FeedForward(d_model, dff);
-  }
-
-  // The call method is responsible for forward propagation in the EncoderLayer.
-  call(x) {
-    // Applying self attention to the input tensor x.
-    x = this.self_attention.apply(x[0]); // Expected input/output shape: (batch_size, sequence_length, d_model)
-
-    // Applying the feedforward neural network to the output of the self attention layer.
-    x = this.ffn.apply(x); // Expected input/output shape: (batch_size, sequence_length, d_model)
-
-    // Returning the output tensor.
-    return x; // Output shape: (batch_size, sequence_length, d_model)
-  }
-
-  // Method to return the class name as a string.
-  getClassName() {
-    return "EncoderLayer";
-  }
-}
-
-class DecoderLayer extends tf.layers.Layer {
-  constructor(d_model, num_heads, dff, dropout_rate = 0.1, vocab_size) {
-    super({ trainable: true });
-    this.causalSelfAttention = new CausalSelfAttention(
-      d_model,
-      num_heads,
-      dropout_rate
-    );
-
-    this.crossAttention = new CrossAttention(d_model, num_heads, dropout_rate);
-
-    this.ffn = new FeedForward(d_model, dff);
-    this.d_model = d_model;
-    this.vocab_size = vocab_size;
-  }
-
-  call(inputs) {
-    const [x, context] = inputs;
-    let out = this.causalSelfAttention.apply(x);
-    out = this.crossAttention.apply([out, context]);
-
-    // Cache the last attention scores for plotting later
-    this.lastAttnScores = this.crossAttention.lastAttnScores;
-
-    out = this.ffn.apply(out);
-    return out;
-  }
-
-  getClassName() {
-    return "DecoderLayer";
-  }
-
-  computeOutputShape() {
-    return [null, this.vocabSize, this.d_model];
-  }
-}
-
-class Decoder extends tf.layers.Layer {
-  constructor(
-    num_layers,
-    d_model,
-    num_heads,
-    dff,
-    vocab_size,
-    dropout_rate = 0.1
-  ) {
-    super({ trainable: true });
-    this.d_model = d_model;
-    this.num_layers = num_layers;
-
-    this.pos_embedding = new PositionalEmbedding(vocab_size, d_model);
-    this.dropout = tf.layers.dropout({ rate: dropout_rate });
-    this.dec_layers = Array.from(
-      { length: num_layers },
-      () => new DecoderLayer(d_model, num_heads, dff, dropout_rate, vocab_size)
-    );
-
-    this.last_attn_scores = null;
-  }
-
-  call(inputs) {
-    const [x, context] = inputs;
-
-    let out = this.pos_embedding.apply(x);
-
-    out = this.dropout.apply(out);
-
-    for (let i = 0; i < this.num_layers; i++) {
-      out = this.dec_layers[i].apply([out, context]);
-    }
-
-    this.last_attn_scores = this.dec_layers[this.num_layers - 1].lastAttnScores;
-
-    return out;
-  }
-
-  getClassName() {
-    return "Decoder";
-  }
-
-  computeOutputShape() {
-    return [null, this.max_tokens, this.d_model];
-  }
-}
-
 class MultiplyLayer extends tf.layers.Layer {
   constructor(d_model) {
     super({});
@@ -564,32 +154,23 @@ class TransformerModel {
       this.dff
     );
 
-    const pos_embedding_dec = new PositionalEmbedding(
+    let pos_embedding_dec = applyEmbeddingAndPosEncoding(
+      outputLanguage,
       this.target_vocab_size,
-      this.d_model
-    );
-    const dropout_dec = tf.layers.dropout({ rate: this.dropout_rate });
-    const dec_layers = Array.from(
-      { length: this.num_layers },
-      () =>
-        new DecoderLayer(
-          this.d_model,
-          this.num_heads,
-          this.dff,
-          this.dropout_rate,
-          this.target_vocab_size
-        )
+      this.d_model,
+      this.dropout_rate
     );
 
-    let out = pos_embedding_dec.apply(outputLanguage);
-
-    out = dropout_dec.apply(out);
-
-    for (let i = 0; i < this.num_layers; i++) {
-      out = dec_layers[i].apply([out, enc_output]);
-    }
-
-    const dec_output = out;
+    const dec_output = applyDecoderLayer(
+      enc_output,
+      pos_embedding_dec,
+      this.num_layers,
+      this.d_model,
+      this.num_heads,
+      this.dff,
+      this.target_vocab_size,
+      this.dropout_rate
+    );
 
     const final_layer = tf.layers.dense({
       inputDim: [null, null, null],
@@ -608,77 +189,165 @@ class TransformerModel {
   }
 }
 
-function applyEncoderLayer(x, num_layers, d_model, num_heads, dff) {
-  const depth = Math.floor(d_model / num_heads);
+// function applyEncoderLayer(x, num_layers, d_model, num_heads, dff) {
+//   const depth = Math.floor(d_model / num_heads);
+//   if (d_model % num_heads !== 0) {
+//     throw new Error("d_model must be divisible by num_heads");
+//   }
+//   for (let i = 0; i < num_layers; i++) {
+//     x = applyAttentionEncoder([x, x, x, x], d_model, num_heads, dff, depth);
+//   }
+//   return x;
+// }
+function applyEncoderLayer(
+  x,
+  num_layers,
+  d_model,
+  num_heads,
+  dff,
+  dropout_rate = 0.1
+) {
+  const attentionLayers = Array.from({ length: num_layers }, () =>
+    createBaseAttentionLayer(d_model, num_heads, dropout_rate, false)
+  );
+  const feedForwardLayers = Array.from({ length: num_layers }, () =>
+    createFeedForwardLayer(d_model, dff, dropout_rate)
+  );
+
+  let output = x;
+  for (let i = 0; i < num_layers; i++) {
+    output = attentionLayers[i](output, output, output); // Using the base attention layer
+    output = feedForwardLayers[i](output);
+  }
+
+  return output;
+}
+
+function applyDecoderLayer(
+  enc_output,
+  pos_embedding_dec,
+  num_layers,
+  d_model,
+  num_heads,
+  dff,
+  dropout_rate = 0.1
+) {
   if (d_model % num_heads !== 0) {
     throw new Error("d_model must be divisible by num_heads");
   }
+
+  const causalSelfAttentionLayers = Array.from({ length: num_layers }, () =>
+    createCausalSelfAttentionLayer(d_model, num_heads, dropout_rate)
+  );
+  const crossAttentionLayers = Array.from({ length: num_layers }, () =>
+    createCrossAttentionLayer(d_model, num_heads, dropout_rate)
+  );
+  const feedForwardLayers = Array.from({ length: num_layers }, () =>
+    createFeedForwardLayer(d_model, dff, dropout_rate)
+  );
+
+  let output = pos_embedding_dec;
   for (let i = 0; i < num_layers; i++) {
-    x = applyEncoderLayerOnce(x, d_model, num_heads, dff, depth);
+    output = causalSelfAttentionLayers[i](output);
+    output = crossAttentionLayers[i](output, enc_output);
+    output = feedForwardLayers[i](output);
   }
-  return x;
+
+  return output;
 }
 
-function applyEncoderLayerOnce(x, d_model, num_heads, dff, depth) {
-  // Global Self Attention
-  let [q, k, v] = [x, x, x];
-  const batchSize = q.shape[0];
+function createCausalSelfAttentionLayer(d_model, num_heads, dropout_rate) {
+  const causalSelfAttentionLayer = createBaseAttentionLayer(
+    d_model,
+    num_heads,
+    dropout_rate,
+    true
+  );
+  return function (input) {
+    return causalSelfAttentionLayer(input, input, input);
+  };
+}
 
-  // MultiHeadAttention
-  const wq = tf.layers.dense({ units: d_model });
-  const wk = tf.layers.dense({ units: d_model });
-  const wv = tf.layers.dense({ units: d_model });
-  const dense = tf.layers.dense({ units: d_model });
+function createCrossAttentionLayer(d_model, num_heads, dropout_rate) {
+  const crossAttentionLayer = createBaseAttentionLayer(
+    d_model,
+    num_heads,
+    dropout_rate,
+    false
+  );
+  return function (input, context) {
+    return crossAttentionLayer(input, context, context);
+  };
+}
 
-  q = wq.apply(q);
-  k = wk.apply(k);
-  v = wv.apply(v);
-
-  const customAttentionLayer = new CustomAttentionLayer({
-    d_model: d_model,
-    num_heads: num_heads,
-    dff: dff,
-    depth: depth,
-    causal: false,
-  });
-
-  let residualConnectionX = customAttentionLayer.apply([q, k, v, x]);
-
-  residualConnectionX = tf.layers
-    .layerNormalization()
-    .apply(residualConnectionX);
-
-  // FeedForward
+function createFeedForwardLayer(d_model, dff, dropout_rate) {
   const seq = tf.sequential();
   seq.add(
     tf.layers.dense({ units: dff, activation: "relu", inputDim: d_model })
   );
   seq.add(tf.layers.dense({ units: d_model }));
-  seq.add(tf.layers.dropout({ rate: 0.1 }));
+  seq.add(tf.layers.dropout({ rate: dropout_rate }));
+  const layerNorm = tf.layers.layerNormalization();
 
-  const seqOutput = seq.apply(residualConnectionX);
-
-  //   check if residualConnectionX is a tensor
-
-  if (residualConnectionX instanceof tf.Tensor) {
-    residualConnectionX = tf.add(residualConnectionX, seqOutput);
-  } else {
-    console.log("residualConnectionX is not a tensor");
-  }
-
-  residualConnectionX = tf.layers
-    .layerNormalization()
-    .apply(residualConnectionX);
-
-  return residualConnectionX;
+  return function (input) {
+    const seqOutput = seq.apply(input);
+    if (input instanceof tf.Tensor) {
+      const output = tf.add(input, seqOutput);
+      return layerNorm.apply(output);
+    } else {
+      // Purely for when I'm running model.compile() to get the model summary
+      return layerNorm.apply(seqOutput);
+    }
+  };
 }
 
-class CustomAttentionLayer extends tf.layers.Layer {
-  constructor({ d_model, num_heads, dff, depth, causal = false }) {
+function createBaseAttentionLayer(d_model, num_heads, dropout_rate, causal) {
+  // Initialize necessary layers and variables here
+  const mha = createMultiHeadAttentionLayer(d_model, num_heads, causal);
+  const layernorm = tf.layers.layerNormalization();
+  const add = tf.layers.add();
+
+  return function (q, k, v) {
+    // Implement the operation of the layer here
+    const attnOutput = mha(q, k, v);
+    const addOutput = add.apply([q, attnOutput]);
+    return layernorm.apply(addOutput);
+  };
+}
+
+function createMultiHeadAttentionLayer(d_model, num_heads, causal) {
+  if (d_model % num_heads !== 0) {
+    throw new Error("d_model must be divisible by num_heads");
+  }
+
+  const depth = Math.floor(d_model / num_heads);
+
+  const wq = tf.layers.dense({ units: d_model });
+  const wk = tf.layers.dense({ units: d_model });
+  const wv = tf.layers.dense({ units: d_model });
+
+  return function (q, k, v) {
+    const qProcessed = wq.apply(q);
+    const kProcessed = wk.apply(k);
+    const vProcessed = wv.apply(v);
+
+    const customAttentionLayer = new splitHeadsAndComputeAttention({
+      d_model: d_model,
+      num_heads: num_heads,
+      depth: depth,
+      causal: causal,
+    });
+
+    return customAttentionLayer.apply([qProcessed, kProcessed, vProcessed, q]);
+  };
+}
+
+// I need to have this class or else my model will not compile, because I will be doing matrix operations with symbolic tensors
+class splitHeadsAndComputeAttention extends tf.layers.Layer {
+  constructor({ d_model, num_heads, depth, causal = false }) {
     super({});
     this.d_model = d_model;
     this.num_heads = num_heads;
-    this.dff = dff;
     this.depth = depth;
     this.causal = causal;
   }
@@ -754,20 +423,7 @@ class CustomAttentionLayer extends tf.layers.Layer {
   }
 }
 
-// Usage:
-// const layer = new CustomEncoderLayer({d_model: 64, num_heads: 8, dff: 256, depth: 64});
-// const output = layer.call(inputTensor);
-
 export {
-  positionalEncoding,
-  PositionalEmbedding,
-  MultiHeadAttention,
-  CrossAttention,
-  GlobalSelfAttention,
-  CausalSelfAttention,
-  Encoder,
-  DecoderLayer,
-  Decoder,
   // Transformer,
   TransformerModel,
 };

@@ -50,6 +50,8 @@ class MultiplyLayer extends tf.layers.Layer {
   }
 }
 
+tf.serialization.registerClass(MultiplyLayer);
+
 class AddLayer extends tf.layers.Layer {
   constructor(addedValue) {
     super({});
@@ -73,6 +75,8 @@ class AddLayer extends tf.layers.Layer {
     return "AddLayer";
   }
 }
+tf.serialization.registerClass(AddLayer);
+
 
 function applyEmbeddingAndPosEncoding(
   inputLanguage,
@@ -424,6 +428,7 @@ class SplitHeadsAndComputeAttention extends tf.layers.Layer {
     return [output, attentionWeights];
   }
 }
+tf.serialization.registerClass(SplitHeadsAndComputeAttention);
 
 function maskedAccuracy(label, pred) {
   // Log the label and prediction tensors to the console

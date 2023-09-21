@@ -1,50 +1,63 @@
+const winkNLP = (await import('https://cdn.skypack.dev/wink-nlp')).default;
+const mod = (await import('https://cdn.skypack.dev/wink-eng-lite-web-model')).default;
+const nlp = winkNLP( mod );
+
 let vocabularyEn = { "<PAD>": 0, "<START>": 1, "<END>": 2 };
 let vocabularyPt = { "<PAD>": 0, "<START>": 1, "<END>": 2 };
-let intToTokenEn = { 0: "<PAD>", 1: "<START>", 2: "<END>" };
-let intToTokenPt = { 0: "<PAD>", 1: "<START>", 2: "<END>" };
+let intToTokenLangOne = { 0: "<PAD>", 1: "<START>", 2: "<END>" };
+let intToTokenLangTwo = { 0: "<PAD>", 1: "<START>", 2: "<END>" };
 
-function buildVocabulary(tokenizedData) {
+function buildVocabulary(tokenizedData, languageOne, languageTwo, maxVocabEn, maxVocabPt) {
+  let vocabularyEn = {};
+  let vocabularyPt = {};
+
   tokenizedData.forEach((item) => {
-    item.en.forEach((token) => {
+    item[languageOne].forEach((token) => {
       vocabularyEn[token] = (vocabularyEn[token] || 0) + 1;
     });
-    item.pt.forEach((token) => {
+    item[languageTwo].forEach((token) => {
       vocabularyPt[token] = (vocabularyPt[token] || 0) + 1;
     });
   });
+
+  // Sort by frequency and take top maxVocab words
+  vocabularyEn = Object.entries(vocabularyEn).sort(([,a],[,b]) => b-a).slice(0, maxVocabEn).reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
+  vocabularyPt = Object.entries(vocabularyPt).sort(([,a],[,b]) => b-a).slice(0, maxVocabPt).reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
+
+  return { vocabularyEn, vocabularyPt };
 }
 
-function convertTokensToIntegers(tokenizedData, max_tokens = 50) {
-  const tokenToIntEn = {};
-  const tokenToIntPt = {};
-  const vocabArrayEn = Object.keys(vocabularyEn);
-  const vocabArrayPt = Object.keys(vocabularyPt);
+function convertTokensToIntegers(tokenizedData, vocabEn, vocabPt, languageOne, languageTwo, max_tokens = 50) {
+  const tokenToIntEn = { "<UNKNOWN>": 3 };
+  const tokenToIntPt = { "<UNKNOWN>": 3 };
+  const intToTokenLangOne = { 0: "<PAD>", 1: "<START>", 2: "<END>", 3: "<UNKNOWN>" };
+  const intToTokenLangTwo = { 0: "<PAD>", 1: "<START>", 2: "<END>", 3: "<UNKNOWN>" };
 
-  vocabArrayEn.forEach((token, index) => {
-    tokenToIntEn[token] = index;
-    intToTokenEn[index] = token;
+  Object.keys(vocabEn).forEach((token, index) => {
+    tokenToIntEn[token] = index + 4;
+    intToTokenLangOne[index + 4] = token;
   });
 
-  vocabArrayPt.forEach((token, index) => {
-    tokenToIntPt[token] = index;
-    intToTokenPt[index] = token;
+  Object.keys(vocabPt).forEach((token, index) => {
+    tokenToIntPt[token] = index + 4;
+    intToTokenLangTwo[index + 4] = token;
   });
 
-  return tokenizedData.map((item) => ({
-    en: padSequence(
-      [tokenToIntEn["<START>"], ...item.en.map((token) => tokenToIntEn[token] || tokenToIntEn["<PAD>"]), tokenToIntEn["<END>"]],
+  return [tokenizedData.map((item) => ({
+    [languageOne]: padSequence(
+      [1, ...item[languageOne].map((token) => tokenToIntEn[token] || 3), 2],
       max_tokens
     ),
-    pt: padSequence(
-      [tokenToIntPt["<START>"], ...item.pt.map((token) => tokenToIntPt[token] || tokenToIntPt["<PAD>"]), tokenToIntPt["<END>"]],
+    [languageTwo]: padSequence(
+      [1, ...item[languageTwo].map((token) => tokenToIntPt[token] || 3), 2],
       max_tokens
     ),
-  }));
+  })), { intToTokenLangOne, intToTokenLangTwo }];
 }
 
 function padSequence(sequence, length) {
   while (sequence.length < length) {
-    sequence.push(vocabularyEn["<PAD>"]);
+    sequence.push(0);
   }
   return sequence.slice(0, length);
 }
@@ -55,78 +68,14 @@ function detokenizeSentence(tokenizedIntegers, intToToken) {
 
 
 function tokenizeSentence(sentence) {
-  // Unicode normalization
-  sentence = sentence.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  
+  const tokens = [];
+  const doc = nlp.readDoc(sentence);
+  doc.tokens().each((token) => tokens.push(token.out()));
+  return tokens;
 
-  // Case normalization
-  sentence = sentence.toLowerCase();
-
-  // Handling apostrophes
-  sentence = sentence
-    .replace(/n't/g, " not")
-    .replace(/'ve/g, " have")
-    .replace(/'re/g, " are")
-    .replace(/'ll/g, " will")
-    .replace(/'d/g, " would")
-    .replace(/'s/g, " is");
-
-  // Handling numbers (replacing with a placeholder)
-  sentence = sentence.replace(/\b\d+\b/g, "<NUM>");
-
-  // Handling URLs (replacing with a placeholder)
-  sentence = sentence.replace(/https?:\/\/[^\s]+/g, "<URL>");
-
-  // Handling email addresses (replacing with a placeholder)
-  sentence = sentence.replace(
-    /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-    "<EMAIL>"
-  );
-
-  // Tokenization while keeping hyphenated words intact
-  return sentence
-    .replace(/[.,!?;:]/g, " $& ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .split(" ");
 }
 
-function tokenizeSentencePt(sentence) {
-  // Unicode normalization (keeping accented characters as they are important in Portuguese)
-  sentence = sentence.normalize("NFC");
-
-  // Case normalization
-  sentence = sentence.toLowerCase();
-
-  // Handling contractions specific to Portuguese
-  sentence = sentence
-    .replace(/ à /g, " a")
-    .replace(/ ao /g, " a")
-    .replace(/ pelos /g, " por os")
-    .replace(/ pelas /g, " por as")
-    .replace(/ do /g, " de o")
-    .replace(/ da /g, " de a")
-    .replace(/ dos /g, " de os")
-    .replace(/ das /g, " de as");
-
-  // Handling numbers (replacing with a placeholder)
-  sentence = sentence.replace(/\b\d+\b/g, "<NUM>");
-
-  // Handling URLs (replacing with a placeholder)
-  sentence = sentence.replace(/https?:\/\/[^\s]+/g, "<URL>");
-
-  // Handling email addresses (replacing with a placeholder)
-  sentence = sentence.replace(
-    /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-    "<EMAIL>"
-  );
-
-  // Tokenization while keeping hyphenated words and accented characters intact
-  return sentence
-    .replace(/[.,!?;:]/g, " $& ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .split(" ");
-}
 
 function splitData(data) {
   const totalData = data.length;
@@ -139,26 +88,27 @@ function splitData(data) {
   return { trainData, validationData, testData };
 }
 
-function processJson(jsonData, max_tokens = 50) {
-    const tokenizedData = jsonData.map((item) => ({
-      en: tokenizeSentence(item.en),
-      pt: tokenizeSentencePt(item.pt),
-    }));
+function processJson(jsonData, languageOne, languageTwo, maxVocabEn = 5000, maxVocabPt = 5000, max_tokens = 50) {
+  const tokenizedData = jsonData.map((item) => ({
+    [languageOne]: tokenizeSentence(item[languageOne]),
+    [languageTwo]: tokenizeSentence(item[languageTwo]),
+  }));
+
+  const { vocabularyEn, vocabularyPt } = buildVocabulary(tokenizedData, languageOne, languageTwo, maxVocabEn, maxVocabPt);
+  const [dataWithIntegers, toks] = convertTokensToIntegers(tokenizedData, vocabularyEn, vocabularyPt, languageOne, languageTwo, max_tokens);
+  const { trainData, validationData, testData } = splitData(dataWithIntegers);
+
+  const tokenizers = {
+    [languageOne]: toks.intToTokenLangOne,
+    [languageTwo]: toks.intToTokenLangTwo,
+  };
   
-    buildVocabulary(tokenizedData);
-    const dataWithIntegers = convertTokensToIntegers(tokenizedData, max_tokens);
-    const { trainData, validationData, testData } = splitData(dataWithIntegers);
-  
-    return {
-      trainData,
-      validationData,
-      testData,
-      tokenizers: {
-        en: intToTokenEn,
-        pt: intToTokenPt,
-      },
-    };
-  }
-  
+  return {
+    trainData,
+    validationData,
+    testData,
+    tokenizers,
+  };
+}
 
 export { processJson, detokenizeSentence };

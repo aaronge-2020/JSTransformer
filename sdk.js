@@ -1,4 +1,4 @@
-import { TransformerModel } from "./transformerv2.js";
+import { TransformerModel, maskedAccuracy, maskedLoss } from "./transformerv2.js";
 import { processJson, detokenizeSentence } from "./tokenizer.js";
 
 export {
@@ -6,4 +6,6 @@ export {
     TransformerModel,
     processJson,
     detokenizeSentence,
+    maskedAccuracy, 
+    maskedLoss
 }

@@ -27,9 +27,17 @@ function positionalEncoding(length, depth) {
 }
 
 class MultiplyLayer extends tf.layers.Layer {
-  constructor(d_model) {
-    super({});
-    this.d_model = d_model;
+  constructor(config) {
+    super(config);
+    this.d_model = config.d_model;
+  }
+
+  static fromConfig(cls, config) {
+    return new cls(config);
+  }
+
+  static get className() {
+    return "MultiplyLayer";
   }
 
   computeOutputShape(inputShape) {
@@ -42,7 +50,11 @@ class MultiplyLayer extends tf.layers.Layer {
       input = inputs[0];
     }
 
-    return tf.mul(input, tf.sqrt(tf.scalar(this.d_model, "float32")));
+    // return tf.mul(input, tf.sqrt(tf.scalar(this.d_model, "float32")));
+
+    // For some reason this.d_model is showing up as a layer object when I run tf.predict() on the model
+    return tf.mul(input, tf.sqrt(tf.scalar(128, "float32")));
+    
   }
 
   getClassName() {
@@ -53,10 +65,19 @@ class MultiplyLayer extends tf.layers.Layer {
 tf.serialization.registerClass(MultiplyLayer);
 
 class AddLayer extends tf.layers.Layer {
-  constructor(addedValue) {
-    super({});
-    this.addedValue = addedValue;
+  constructor(config) {
+    super(config);
+    this.addedValue = config.addedValue;
   }
+
+  static fromConfig(cls, config) {
+    return new cls(config);
+  }
+  
+  static get className() {
+    return "AddLayer";
+  }
+
 
   computeOutputShape(inputShape) {
     return inputShape; // The output shape is the same as the input shape
@@ -95,12 +116,12 @@ function applyEmbeddingAndPosEncoding(
 
   let x_pos_enc = embedding_enc.apply(inputLanguage);
 
-  const multiplyLayer = new MultiplyLayer(d_model);
+  const multiplyLayer = new MultiplyLayer({"d_model":d_model});
   x_pos_enc = multiplyLayer.apply(x_pos_enc);
 
   const posEncodingSliced = posEncoding_enc.slice([0, 0], [length, -1]);
 
-  const addLayer = new AddLayer(posEncodingSliced);
+  const addLayer = new AddLayer({"addedValue": posEncodingSliced});
   x_pos_enc = addLayer.apply(x_pos_enc);
 
   const dropout_enc = tf.layers.dropout({ rate: dropout_rate });
@@ -182,6 +203,7 @@ class TransformerModel {
       units: this.target_vocab_size,
       computeOutputShape: [null, this.max_tokens, this.target_vocab_size],
       name: "final_layer",
+      activation: 'relu'
     });
 
     // Final linear layer
@@ -355,9 +377,15 @@ class SplitHeadsAndComputeAttention extends tf.layers.Layer {
     this.depth = depth;
     this.causal = causal;
   }
+  static fromConfig(cls, config) {
+    return new cls(config);
+  }
+  static get className() {
+    return "SplitHeadsAndComputeAttention";
+  }
 
   getClassName() {
-    return "CustomAttentionLayer";
+    return "SplitHeadsAndComputeAttention";
   }
 
   computeOutputShape(inputShape) {

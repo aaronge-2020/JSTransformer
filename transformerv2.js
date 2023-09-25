@@ -202,8 +202,7 @@ class TransformerModel {
       inputDim: [null, null, null],
       units: this.target_vocab_size,
       computeOutputShape: [null, this.max_tokens, this.target_vocab_size],
-      name: "final_layer",
-      activation: 'relu'
+      name: "final_layer"
     });
 
     // Final linear layer

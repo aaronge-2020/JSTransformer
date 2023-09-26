@@ -109,7 +109,7 @@ const word_probs_label_train_batches = createMiniBatches(word_probs_label_train,
 
 
 // // Training loop
-// for (let i = 0; i < en_train_batches.length; i++) {
+// for (let i = 0; i < en_train_batches.length - 1; i++) {
 //   const train_x_batch = tf.tensor(en_train_batches[i]);
 //   const train_y_batch = tf.tensor(target_lang_input_train_batches[i]);
 //   const labels_batch = tf.tensor(word_probs_label_train_batches[i]);
@@ -125,7 +125,7 @@ const word_probs_label_train_batches = createMiniBatches(word_probs_label_train,
 //   train_y_batch.dispose();
 //   labels_batch.dispose();
   
-//   console.log(`Batch ${i + 1} completed. ${numb_of_batches - i - 1} batches remaining.`);
+//   console.log(`Batch ${i + 1} completed. ${en_train_batches.length - i - 1} batches remaining.`);
 
 // }
 

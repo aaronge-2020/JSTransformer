@@ -1,5 +1,5 @@
-import { TransformerModel, maskedAccuracy, maskedLoss } from "./transformerv2.js";
-import { processJson, detokenizeSentence } from "./tokenizer.js";
+import { TransformerModel, maskedAccuracy, maskedLoss, createMiniBatches } from "./transformerv2.js";
+import { processJson, detokenizeSentence, shiftTokens } from "./tokenizer.js";
 
 export {
 
@@ -7,5 +7,7 @@ export {
     processJson,
     detokenizeSentence,
     maskedAccuracy, 
-    maskedLoss
+    maskedLoss,
+    shiftTokens,
+    createMiniBatches,
 }

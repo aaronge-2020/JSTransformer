@@ -2,44 +2,38 @@ import {
   // Transformer,
   TransformerModel,
   maskedAccuracy,
-  maskedLoss
+  maskedLoss,
+  createMiniBatches
 } from "./transformerv2.js";
 
 import {
-  processJson
+  processJson,
+  shiftTokens
 } from "./tokenizer.js";
 
 const tf = await import("https://esm.sh/@tensorflow/tfjs@4.10.0");
 
 // Test the Transformer
 const num_layers = 4
-const d_model = 64
+const d_model = 256
 
 // The dff is the node size of the feed forward network
 const dff = 128
 const num_heads = 8
 const dropout_rate = 0.1
 
-const input_vocab_size = 2000
-const target_vocab_size = 2350
+const input_vocab_size = 4000
+const target_vocab_size = 4000
 
-const MAX_TOKENS = 7;
+const MAX_TOKENS = 12;
 
-
-// const transformerModel = new TransformerModel(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate, input_vocab_size, target_vocab_size, MAX_TOKENS);
-// const model = transformerModel.model;
-// model.compile({
-//   loss: maskedLoss,
-//   optimizer: 'adam',
-//   metrics: [maskedAccuracy]
-// });
-
-const start_point = 1000;
-const numb_samples = 3000;
+// Sampling from the dataset
+const start_point = 0;
+const batch_size = 32*2;
+const numb_of_batches = 1;
+const numb_samples = batch_size * numb_of_batches;
 
 const response = await fetch('http://127.0.0.1:5500/translation_pairs.json');
-
-
 
 const jsonData = await response.json();
 
@@ -47,52 +41,98 @@ const processedData = processJson(jsonData.slice(start_point, start_point+numb_s
 
 const en_train = processedData.trainData.map((item) => item.English)
 
+// const en_validation = processedData.validationData.map((item) => item.English)
+
 const sp_train = processedData.trainData.map((item) => item.Spanish)
 
-// const pt_train = processedData.trainData.map((batch) => batch.map((item) => item.pt))
+// const sp_validation = processedData.validationData.map((item) => item.Spanish)
 
-// const en_train = processedData.trainData.map((batch) => batch.map((item) => item.en))
+const training_dataset = shiftTokens(sp_train, 2)
+
+const target_lang_input_train = training_dataset[0]
+
+const target_lang_label_train = training_dataset[1]
 
 
+// const validation_dataset = shiftTokens(sp_validation, 2)
 
-const train_x = tf.tensor(en_train.slice(0, 10))
-const train_y = tf.tensor(sp_train.slice(0, 10))
+// const target_lang_input_validation = validation_dataset[0]
 
-// const seq_len = output_language[0].length; // assuming all items have the same length
+// const target_lang_label_validation = validation_dataset[1]
 
-// let word_probs_label = new Array(batch_size).fill(null).map(() =>
+
+const seq_len = target_lang_label_train[0].length; // assuming all items have the same length
+
+let word_probs_label_train = new Array(sp_train.length).fill(null).map(() =>
+  new Array(seq_len).fill(null).map(() =>
+    new Array(target_vocab_size).fill(0)
+  )
+);
+
+target_lang_label_train.forEach((batch, batchIndex) => {
+  batch.forEach((token, tokenIndex) => {
+    if (token < target_vocab_size) {
+      word_probs_label_train[batchIndex][tokenIndex][token] = 1;
+    }
+  });
+});
+
+// let word_probs_label_validation = new Array(sp_validation.length).fill(null).map(() =>
 //   new Array(seq_len).fill(null).map(() =>
 //     new Array(target_vocab_size).fill(0)
 //   )
 // );
 
-// output_language.slice(0,batch_size).forEach((batch, batchIndex) => {
+// target_lang_label_validation.forEach((batch, batchIndex) => {
 //   batch.forEach((token, tokenIndex) => {
 //     if (token < target_vocab_size) {
-//       word_probs_label[batchIndex][tokenIndex][token] = 1;
+//       word_probs_label_validation[batchIndex][tokenIndex][token] = 1;
 //     }
 //   });
 // });
 
-// console.log(word_probs_label);
+
+const transformerModel = new TransformerModel(num_layers, d_model, num_heads, dff, input_vocab_size, target_vocab_size, dropout_rate, input_vocab_size, target_vocab_size, MAX_TOKENS);
+const model = transformerModel.model;
+model.compile({
+  loss: maskedLoss,
+  optimizer: 'adam',
+  metrics: [maskedAccuracy]
+});
 
 
-// // The model will output [batch_size, seq_len, vocab_size] so we have to reshape word_probs_label to match that. The word_probs_label should have the probability of each word in the vocab for each token in the sequence. 
-// // The third dimension of word_probs_label should be the vocab size with each value being the probability of that word being the next word in the sequence. The current value of the second dimension is the index of the word in the vocab so that will have a probability of 1 while the rest will be 0.
+
+// Create mini-batches for training and validation data
+const en_train_batches = createMiniBatches(en_train, batch_size);
+const target_lang_input_train_batches = createMiniBatches(target_lang_input_train, batch_size);
+const word_probs_label_train_batches = createMiniBatches(word_probs_label_train, batch_size);
 
 
-// function translateProbabilityToSentence(probability, detokenizer){
-//   return probability.map((sentence) => sentence.map ( (word) => detokenizer[word.indexOf(Math.max(...word))]))
+// // Training loop
+// for (let i = 0; i < en_train_batches.length; i++) {
+//   const train_x_batch = tf.tensor(en_train_batches[i]);
+//   const train_y_batch = tf.tensor(target_lang_input_train_batches[i]);
+//   const labels_batch = tf.tensor(word_probs_label_train_batches[i]);
+
+//   // Train the model on the current batch
+//   await model.fit([train_x_batch, train_y_batch], labels_batch, {
+//     epochs: 1, // 15 epoch for each mini-batch
+//     batchSize: 32 // your batch size
+//   });
+
+//   // Dispose tensors to free memory
+//   train_x_batch.dispose();
+//   train_y_batch.dispose();
+//   labels_batch.dispose();
+  
+//   console.log(`Batch ${i + 1} completed. ${numb_of_batches - i - 1} batches remaining.`);
+
 // }
 
-// model.summary();
-// const result = model.predict([train_x, train_y]).print();
-
-// await model.fit([train_x, train_y], tf.tensor(word_probs_label), {
-//   batch_size: batch_size,
+//   model.save("http://127.0.0.1:5500/test-model", {
+//   customLayers: true
 // })
 
+  // const loadedModel = await tf.loadLayersModel("http://127.0.0.1:5500/test-model.json");
 
-const loadedModel = await tf.loadLayersModel("http://127.0.0.1:5500/final-model.json")
-
-loadedModel.predict([train_x, train_y]).print()
+  // loadedModel.predict([tf.tensor(en_train_batches[0]), tf.tensor(target_lang_input_train_batches[0])]).print();

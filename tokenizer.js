@@ -110,5 +110,34 @@ function processJson(jsonData, languageOne, languageTwo, maxVocabEn = 5000, maxV
     tokenizers,
   };
 }
+function shiftTokens(targetLanguage, endToken = 2) {
+  // Create a deep copy of targetLanguage for label_target
+  let label_target = JSON.parse(JSON.stringify(targetLanguage));
 
-export { processJson, detokenizeSentence };
+  // Remove the last element from each sentence in label_target
+  label_target = label_target.map((sent) => {
+    return sent.slice(1,sent.length);
+  });
+
+  // Add 0 to the end of each sentence in label_target
+  label_target.forEach((sent) => sent.push(0));
+
+  // Create a deep copy of targetLanguage for label_target
+  let train_target = JSON.parse(JSON.stringify(targetLanguage));
+
+  // Remove the element with value of endToken from each sentence in train_target
+  train_target.forEach((sentence) => {
+    const index = sentence.indexOf(endToken);
+    if (index !== -1) {
+      sentence.splice(index, 1);
+    }
+  });
+
+  // Add 0 to the end of each sentence in label_target
+  train_target.forEach((sentence) => sentence.push(0));
+
+  return [train_target, label_target];
+}
+
+
+export { processJson, detokenizeSentence, shiftTokens };

@@ -29,7 +29,7 @@ function positionalEncoding(length, depth) {
 class MultiplyLayer extends tf.layers.Layer {
   constructor(config) {
     super(config);
-    this.d_model = config.d_model;
+    this.dModel = config.dModel;
   }
 
   static fromConfig(cls, config) {
@@ -50,11 +50,10 @@ class MultiplyLayer extends tf.layers.Layer {
       input = inputs[0];
     }
 
-    // return tf.mul(input, tf.sqrt(tf.scalar(this.d_model, "float32")));
+    // return tf.mul(input, tf.sqrt(tf.scalar(this.dModel, "float32")));
 
-    // For some reason this.d_model is showing up as a layer object when I run tf.predict() on the model
+    // For some reason this.dModel is showing up as a layer object when I run tf.predict() on the model
     return tf.mul(input, tf.sqrt(tf.scalar(128, "float32")));
-    
   }
 
   getClassName() {
@@ -67,29 +66,28 @@ tf.serialization.registerClass(MultiplyLayer);
 class AddLayer extends tf.layers.Layer {
   constructor(config) {
     super(config);
-    this.addedValue = config.addedValue;
   }
 
   static fromConfig(cls, config) {
     return new cls(config);
   }
-  
+
   static get className() {
     return "AddLayer";
   }
-
 
   computeOutputShape(inputShape) {
     return inputShape; // The output shape is the same as the input shape
   }
 
   call(inputs, kwargs) {
-    let input = inputs;
-    if (Array.isArray(inputs)) {
-      input = inputs[0];
-    }
+    let [input1, input2] = inputs;
 
-    return tf.add(input, this.addedValue);
+    if (input1 instanceof tf.Tensor) {
+      return tf.add(input1, input2);
+    } else {
+      return input1;
+    }
   }
 
   getClassName() {
@@ -98,44 +96,46 @@ class AddLayer extends tf.layers.Layer {
 }
 tf.serialization.registerClass(AddLayer);
 
-
 function applyEmbeddingAndPosEncoding(
   inputLanguage,
   input_vocab_size,
-  d_model,
+  dModel,
   dropout_rate = 0.1
 ) {
   const embedding_enc = tf.layers.embedding({
     inputDim: input_vocab_size,
-    outputDim: d_model,
+    outputDim: dModel,
     maskZero: true,
   });
-  const posEncoding_enc = positionalEncoding(input_vocab_size, d_model);
+  const posEncoding_enc = positionalEncoding(input_vocab_size, dModel);
 
   const length = inputLanguage.shape[1];
 
   let x_pos_enc = embedding_enc.apply(inputLanguage);
 
-  const multiplyLayer = new MultiplyLayer({"d_model":d_model});
+  const multiplyLayer = new MultiplyLayer({ dModel: dModel });
   x_pos_enc = multiplyLayer.apply(x_pos_enc);
 
   const posEncodingSliced = posEncoding_enc.slice([0, 0], [length, -1]);
 
-  const addLayer = new AddLayer({"addedValue": posEncodingSliced});
-  x_pos_enc = addLayer.apply(x_pos_enc);
+  if (x_pos_enc instanceof tf.Tensor) {
+    const addLayer = new AddLayer();
+    x_pos_enc = addLayer.apply([posEncodingSliced, x_pos_enc]);
 
-  const dropout_enc = tf.layers.dropout({ rate: dropout_rate });
+    const dropout_enc = tf.layers.dropout({ rate: dropout_rate });
 
-  let x = dropout_enc.apply(x_pos_enc);
-
-  return x;
+    let x = dropout_enc.apply(x_pos_enc);
+    return x;
+  } else {
+    return x_pos_enc;
+  }
 }
 
 class TransformerModel {
   constructor(
     num_layers,
-    d_model,
-    num_heads,
+    dModel,
+    numHeads,
     dff,
     input_vocab_size,
     target_vocab_size,
@@ -145,8 +145,8 @@ class TransformerModel {
     max_tokens = 60
   ) {
     this.num_layers = num_layers;
-    this.d_model = d_model;
-    this.num_heads = num_heads;
+    this.dModel = dModel;
+    this.numHeads = numHeads;
     this.dff = dff;
     this.input_vocab_size = input_vocab_size;
     this.target_vocab_size = target_vocab_size;
@@ -168,22 +168,22 @@ class TransformerModel {
     let x_pos_enc = applyEmbeddingAndPosEncoding(
       inputLanguage,
       this.input_vocab_size,
-      this.d_model,
+      this.dModel,
       this.dropout_rate
     );
 
     const enc_output = applyEncoderLayer(
       x_pos_enc,
       this.num_layers,
-      this.d_model,
-      this.num_heads,
+      this.dModel,
+      this.numHeads,
       this.dff
     );
 
     let pos_embedding_dec = applyEmbeddingAndPosEncoding(
       outputLanguage,
       this.target_vocab_size,
-      this.d_model,
+      this.dModel,
       this.dropout_rate
     );
 
@@ -191,8 +191,8 @@ class TransformerModel {
       enc_output,
       pos_embedding_dec,
       this.num_layers,
-      this.d_model,
-      this.num_heads,
+      this.dModel,
+      this.numHeads,
       this.dff,
       this.target_vocab_size,
       this.dropout_rate
@@ -202,7 +202,7 @@ class TransformerModel {
       inputDim: [null, null, null],
       units: this.target_vocab_size,
       computeOutputShape: [null, this.max_tokens, this.target_vocab_size],
-      name: "final_layer"
+      name: "final_layer",
     });
 
     // Final linear layer
@@ -218,17 +218,17 @@ class TransformerModel {
 function applyEncoderLayer(
   x,
   num_layers,
-  d_model,
-  num_heads,
+  dModel,
+  numHeads,
   dff,
   dropout_rate = 0.1
 ) {
   return tf.tidy(() => {
     const attentionLayers = Array.from({ length: num_layers }, () =>
-      createBaseAttentionLayer(d_model, num_heads, dropout_rate, false)
+      createBaseAttentionLayer(dModel, numHeads, dropout_rate, false)
     );
     const feedForwardLayers = Array.from({ length: num_layers }, () =>
-      createFeedForwardLayer(d_model, dff, dropout_rate)
+      createFeedForwardLayer(dModel, dff, dropout_rate)
     );
 
     let output = x;
@@ -245,24 +245,24 @@ function applyDecoderLayer(
   enc_output,
   pos_embedding_dec,
   num_layers,
-  d_model,
-  num_heads,
+  dModel,
+  numHeads,
   dff,
   dropout_rate = 0.1
 ) {
-  if (d_model % num_heads !== 0) {
-    throw new Error("d_model must be divisible by num_heads");
+  if (dModel % numHeads !== 0) {
+    throw new Error("dModel must be divisible by numHeads");
   }
 
   return tf.tidy(() => {
     const causalSelfAttentionLayers = Array.from({ length: num_layers }, () =>
-      createCausalSelfAttentionLayer(d_model, num_heads, dropout_rate)
+      createCausalSelfAttentionLayer(dModel, numHeads, dropout_rate)
     );
     const crossAttentionLayers = Array.from({ length: num_layers }, () =>
-      createCrossAttentionLayer(d_model, num_heads, dropout_rate)
+      createCrossAttentionLayer(dModel, numHeads, dropout_rate)
     );
     const feedForwardLayers = Array.from({ length: num_layers }, () =>
-      createFeedForwardLayer(d_model, dff, dropout_rate)
+      createFeedForwardLayer(dModel, dff, dropout_rate)
     );
 
     let output = pos_embedding_dec;
@@ -276,10 +276,10 @@ function applyDecoderLayer(
   });
 }
 
-function createCausalSelfAttentionLayer(d_model, num_heads, dropout_rate) {
+function createCausalSelfAttentionLayer(dModel, numHeads, dropout_rate) {
   const causalSelfAttentionLayer = createBaseAttentionLayer(
-    d_model,
-    num_heads,
+    dModel,
+    numHeads,
     dropout_rate,
     true
   );
@@ -288,10 +288,10 @@ function createCausalSelfAttentionLayer(d_model, num_heads, dropout_rate) {
   };
 }
 
-function createCrossAttentionLayer(d_model, num_heads, dropout_rate) {
+function createCrossAttentionLayer(dModel, numHeads, dropout_rate) {
   const crossAttentionLayer = createBaseAttentionLayer(
-    d_model,
-    num_heads,
+    dModel,
+    numHeads,
     dropout_rate,
     false
   );
@@ -300,12 +300,12 @@ function createCrossAttentionLayer(d_model, num_heads, dropout_rate) {
   };
 }
 
-function createFeedForwardLayer(d_model, dff, dropout_rate) {
+function createFeedForwardLayer(dModel, dff, dropout_rate) {
   const seq = tf.sequential();
   seq.add(
-    tf.layers.dense({ units: dff, activation: "relu", inputDim: d_model })
+    tf.layers.dense({ units: dff, activation: "relu", inputDim: dModel })
   );
-  seq.add(tf.layers.dense({ units: d_model }));
+  seq.add(tf.layers.dense({ units: dModel }));
   seq.add(tf.layers.dropout({ rate: dropout_rate }));
   const layerNorm = tf.layers.layerNormalization();
 
@@ -321,9 +321,9 @@ function createFeedForwardLayer(d_model, dff, dropout_rate) {
   };
 }
 
-function createBaseAttentionLayer(d_model, num_heads, dropout_rate, causal) {
+function createBaseAttentionLayer(dModel, numHeads, dropout_rate, causal) {
   // Initialize necessary layers and variables here
-  const mha = createMultiHeadAttentionLayer(d_model, num_heads, causal);
+  const mha = createMultiHeadAttentionLayer(dModel, numHeads, causal);
   const layernorm = tf.layers.layerNormalization();
   const add = tf.layers.add();
 
@@ -335,16 +335,16 @@ function createBaseAttentionLayer(d_model, num_heads, dropout_rate, causal) {
   };
 }
 
-function createMultiHeadAttentionLayer(d_model, num_heads, causal) {
-  if (d_model % num_heads !== 0) {
-    throw new Error("d_model must be divisible by num_heads");
+function createMultiHeadAttentionLayer(dModel, numHeads, causal) {
+  if (dModel % numHeads !== 0) {
+    throw new Error("dModel must be divisible by numHeads");
   }
 
-  const depth = Math.floor(d_model / num_heads);
+  const depth = Math.floor(dModel / numHeads);
 
-  const wq = tf.layers.dense({ units: d_model });
-  const wk = tf.layers.dense({ units: d_model });
-  const wv = tf.layers.dense({ units: d_model });
+  const wq = tf.layers.dense({ units: dModel });
+  const wk = tf.layers.dense({ units: dModel });
+  const wv = tf.layers.dense({ units: dModel });
 
   return function (q, k, v) {
     const qProcessed = wq.apply(q);
@@ -352,33 +352,43 @@ function createMultiHeadAttentionLayer(d_model, num_heads, causal) {
     const vProcessed = wv.apply(v);
 
     const splitHeadsAndComputeAttention = new SplitHeadsAndComputeAttention({
-      d_model: d_model,
-      num_heads: num_heads,
+      dModel: dModel,
+      numHeads: numHeads,
       depth: depth,
       causal: causal,
     });
 
-    return splitHeadsAndComputeAttention.apply([
-      qProcessed,
-      kProcessed,
-      vProcessed,
-      q,
-    ]);
+    return splitHeadsAndComputeAttention.apply(
+      [qProcessed, kProcessed, vProcessed, q]);
   };
 }
 
 // I need to have this class or else my model will not compile, because I will be doing matrix operations with symbolic tensors
 class SplitHeadsAndComputeAttention extends tf.layers.Layer {
-  constructor({ d_model, num_heads, depth, causal = false }) {
-    super({});
-    this.d_model = d_model;
-    this.num_heads = num_heads;
-    this.depth = depth;
-    this.causal = causal;
+  constructor(config, kwargs) {
+    super(config);
+    this.dModel = config.dModel;
+    this.numHeads = config.numHeads;
+    this.depth = config.depth;
+    this.causal = config.causal;
   }
   static fromConfig(cls, config) {
     return new cls(config);
   }
+
+  // Define serialization logic
+  getConfig() {
+    const config = super.getConfig();
+    
+    Object.assign(config, {
+      dModel: this.dModel,
+      numHeads: this.numHeads,
+      depth: this.depth,
+      causal: this.causal,
+    });
+    return config;
+  }
+
   static get className() {
     return "SplitHeadsAndComputeAttention";
   }
@@ -397,9 +407,9 @@ class SplitHeadsAndComputeAttention extends tf.layers.Layer {
       const batchSize = x.shape[0];
 
       [q, k, v] = [
-        this.splitHeads(q, batchSize, this.num_heads, this.depth),
-        this.splitHeads(k, batchSize, this.num_heads, this.depth),
-        this.splitHeads(v, batchSize, this.num_heads, this.depth),
+        this.splitHeads(q, batchSize, this.numHeads, this.depth),
+        this.splitHeads(k, batchSize, this.numHeads, this.depth),
+        this.splitHeads(v, batchSize, this.numHeads, this.depth),
       ];
 
       let [scaledAttention, attentionWeights] = this.scaledDotProductAttention(
@@ -414,7 +424,7 @@ class SplitHeadsAndComputeAttention extends tf.layers.Layer {
       const concatAttention = scaledAttentionTransposed.reshape([
         batchSize,
         -1,
-        this.d_model,
+        this.dModel,
       ]);
 
       x = tf.add(x, concatAttention);
@@ -423,9 +433,9 @@ class SplitHeadsAndComputeAttention extends tf.layers.Layer {
     });
   }
 
-  splitHeads(x, batch_size, num_heads, depth) {
+  splitHeads(x, batch_size, numHeads, depth) {
     return tf.tidy(() => {
-      const reshaped = tf.reshape(x, [batch_size, -1, num_heads, depth]);
+      const reshaped = tf.reshape(x, [batch_size, -1, numHeads, depth]);
       return tf.transpose(reshaped, [0, 2, 1, 3]);
     });
   }
@@ -460,31 +470,31 @@ tf.serialization.registerClass(SplitHeadsAndComputeAttention);
 function maskedAccuracy(label, pred) {
   // Log the label and prediction tensors to the console
   console.log(label, pred);
-  
+
   // Find the index of the maximum value along axis 2 for both label and prediction
   let predArgMax = tf.argMax(pred, 2);
   let labelArgMax = tf.argMax(label, 2);
-  
+
   // Check element-wise equality between the label and prediction
   let match = tf.equal(labelArgMax, predArgMax);
 
   // Create a mask where label is not equal to 0
   // This is useful for ignoring padding or other special tokens
   const mask = tf.notEqual(labelArgMax, 0);
-  
+
   // Update the match tensor to only include positions where the mask is true
   match = tf.logicalAnd(match, mask);
 
   // Cast the boolean tensors to float32 for mathematical operations
-  const castedMatch = tf.cast(match, 'float32');
-  const castedMask = tf.cast(mask, 'float32');
-  
+  const castedMatch = tf.cast(match, "float32");
+  const castedMask = tf.cast(mask, "float32");
+
   // Calculate the accuracy by summing up the matches and dividing by the sum of the mask
   const accuracy = tf.sum(castedMatch).div(tf.sum(castedMask));
-  
+
   // Print the accuracy tensor
   accuracy.print();
-  
+
   // Return the accuracy tensor
   return accuracy;
 }
@@ -493,21 +503,30 @@ function maskedLoss(label, pred) {
   // Create a mask where label is not equal to 0
   // This is useful for ignoring padding or other special tokens
   const mask = tf.notEqual(label, 0);
-  
+
   // Compute the softmax cross-entropy loss
-  const lossObject = tf.losses.softmaxCrossEntropy(label, pred, true, 'none');
-  
+  const lossObject = tf.losses.softmaxCrossEntropy(label, pred, true, "none");
+
   // Cast the mask tensor to the same dtype as the lossObject for multiplication
   const castedMask = tf.cast(mask, lossObject.dtype);
-  
+
   // Multiply the loss by the mask to ignore irrelevant tokens
   let loss = tf.mul(lossObject, castedMask);
 
   // Calculate the final loss by summing up the masked losses and dividing by the sum of the mask
   loss = tf.sum(loss).div(tf.sum(castedMask));
-  
+
   // Return the final loss tensor
   return loss;
+}
+
+function createMiniBatches(data, batchSize) {
+  const miniBatches = [];
+  for (let i = 0; i < data.length; i += batchSize) {
+    const miniBatch = data.slice(i, i + batchSize);
+    miniBatches.push(miniBatch);
+  }
+  return miniBatches;
 }
 
 export {
@@ -515,4 +534,5 @@ export {
   TransformerModel,
   maskedLoss,
   maskedAccuracy,
+  createMiniBatches,
 };

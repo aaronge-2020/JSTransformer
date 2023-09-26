@@ -8,7 +8,8 @@ import {
 
 import {
   processJson,
-  shiftTokens
+  shiftTokens,
+  wordsToIntTokens,
 } from "./tokenizer.js";
 
 const tf = await import("https://esm.sh/@tensorflow/tfjs@4.10.0");
@@ -29,8 +30,8 @@ const MAX_TOKENS = 12;
 
 // Sampling from the dataset
 const start_point = 0;
-const batch_size = 32*2;
-const numb_of_batches = 1;
+const batch_size = 32*5;
+const numb_of_batches = 100;
 const numb_samples = batch_size * numb_of_batches;
 
 const response = await fetch('http://127.0.0.1:5500/translation_pairs.json');
@@ -106,6 +107,8 @@ model.compile({
 const en_train_batches = createMiniBatches(en_train, batch_size);
 const target_lang_input_train_batches = createMiniBatches(target_lang_input_train, batch_size);
 const word_probs_label_train_batches = createMiniBatches(word_probs_label_train, batch_size);
+
+
 
 
 // // Training loop

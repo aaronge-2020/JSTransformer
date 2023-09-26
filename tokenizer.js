@@ -139,5 +139,28 @@ function shiftTokens(targetLanguage, endToken = 2) {
   return [train_target, label_target];
 }
 
+// Takes in a sentence and returns a padded list of tokens of max_length with a start and end symbol based on the intToToken dictionary provided
 
-export { processJson, detokenizeSentence, shiftTokens };
+function wordsToIntTokens(sentence, intToToken, max_length = 10) {
+
+  const tokens = tokenizeSentence(sentence);
+
+  // Switches the keys and values of the intToToken dictionary
+  const tokenToInt = Object.keys(intToToken).reduce((acc, key) => {
+    acc[intToToken[key]] = key;
+    return acc;
+  }, {});
+
+  // Converts the tokens to integers based on the tokenToInt dictionary and adds the start and end token 
+
+  const tokenizedIntegers = [1, ...tokens.map((token) => tokenToInt[token] || 3), 2];
+
+  // Pads the tokenizedIntegers to max_length or truncates it to max_length
+  return padSequence(tokenizedIntegers, max_length);
+
+}
+
+
+
+
+export { processJson, detokenizeSentence, shiftTokens, wordsToIntTokens };

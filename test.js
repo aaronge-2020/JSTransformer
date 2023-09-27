@@ -16,23 +16,24 @@ const tf = await import("https://esm.sh/@tensorflow/tfjs@4.10.0");
 
 // Test the Transformer
 const num_layers = 4
-const d_model = 256
+const d_model = 128
 
 // The dff is the node size of the feed forward network
 const dff = 128
 const num_heads = 8
 const dropout_rate = 0.1
 
-const input_vocab_size = 4000
-const target_vocab_size = 4000
+const input_vocab_size = 3000
+const target_vocab_size = 5500
 
-const MAX_TOKENS = 12;
+const MAX_TOKENS = 10;
 
 // Sampling from the dataset
 const start_point = 0;
-const batch_size = 32*5;
-const numb_of_batches = 100;
+const batch_size = 32*4;
+const numb_of_batches = 125;
 const numb_samples = batch_size * numb_of_batches;
+const numb_epochs = 15;
 
 const response = await fetch('http://127.0.0.1:5500/translation_pairs.json');
 
@@ -108,34 +109,40 @@ const en_train_batches = createMiniBatches(en_train, batch_size);
 const target_lang_input_train_batches = createMiniBatches(target_lang_input_train, batch_size);
 const word_probs_label_train_batches = createMiniBatches(word_probs_label_train, batch_size);
 
+const loadedModelv1 = await tf.loadLayersModel("http://127.0.0.1:5500/test-model-v1.json");
 
+const loadedModelv2 = await tf.loadLayersModel("http://127.0.0.1:5500/test-model-v2.json");
 
+loadedModelv2.compile({
+  loss: maskedLoss,
+  optimizer: 'adam',
+  metrics: maskedAccuracy
+});
 
-// // Training loop
-// for (let i = 0; i < en_train_batches.length - 1; i++) {
-//   const train_x_batch = tf.tensor(en_train_batches[i]);
-//   const train_y_batch = tf.tensor(target_lang_input_train_batches[i]);
-//   const labels_batch = tf.tensor(word_probs_label_train_batches[i]);
+// Train the model
 
-//   // Train the model on the current batch
-//   await model.fit([train_x_batch, train_y_batch], labels_batch, {
-//     epochs: 1, // 15 epoch for each mini-batch
-//     batchSize: 32 // your batch size
-//   });
-
-//   // Dispose tensors to free memory
-//   train_x_batch.dispose();
-//   train_y_batch.dispose();
-//   labels_batch.dispose();
+{
+  for (let j = 0; j < numb_epochs; j++){
+    for (let i = 10; i < en_train_batches.length - 1; i++) {
+      const train_x_batch = tf.tensor(en_train_batches[i]);
+      const train_y_batch = tf.tensor(target_lang_input_train_batches[i]);
+      const labels_batch = tf.tensor(word_probs_label_train_batches[i]);
   
-//   console.log(`Batch ${i + 1} completed. ${en_train_batches.length - i - 1} batches remaining.`);
+      // Train the model on the current batch
+      await loadedModelv2.trainOnBatch([train_x_batch, train_y_batch], labels_batch);
+  
+      // Dispose tensors to free memory
+      train_x_batch.dispose();
+      train_y_batch.dispose();
+      labels_batch.dispose();
+      
+      console.log(`Batch ${i + 1} completed. ${en_train_batches.length - i - 1} batches remaining.`);
+  
+    }
+    console.log(`Epoch ${j + 1} completed. ${numb_epochs.length - j - 1} epochs remaining.`);
+  }
+}
 
-// }
 
-//   model.save("http://127.0.0.1:5500/test-model", {
-//   customLayers: true
-// })
-
-  // const loadedModel = await tf.loadLayersModel("http://127.0.0.1:5500/test-model.json");
 
   // loadedModel.predict([tf.tensor(en_train_batches[0]), tf.tensor(target_lang_input_train_batches[0])]).print();

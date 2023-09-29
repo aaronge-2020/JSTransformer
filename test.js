@@ -183,7 +183,7 @@ loadedModel.compile({
 
         // save the model every 20 batches
         if (i % 20 === 0){
-          await loadedModel.save('downloads://my-model' + '-epoch-' + (j + 1) + '-batch-' + (i+1));
+          await loadedModel.save('downloads://my-model' + '-epoch-' + (j + 1) + '-batch-' + (i));
         }
 
 

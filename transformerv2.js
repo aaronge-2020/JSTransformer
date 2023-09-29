@@ -32,6 +32,16 @@ class MultiplyLayer extends tf.layers.Layer {
     this.dModel = config.dModel;
   }
 
+    // Define serialization logic
+    getConfig() {
+      const config = super.getConfig();
+      
+      Object.assign(config, {
+        dModel: this.dModel,
+      });
+      return config;
+    }
+
   static fromConfig(cls, config) {
     return new cls(config);
   }
@@ -50,10 +60,7 @@ class MultiplyLayer extends tf.layers.Layer {
       input = inputs[0];
     }
 
-    // return tf.mul(input, tf.sqrt(tf.scalar(this.dModel, "float32")));
-
-    // For some reason this.dModel is showing up as a layer object when I run tf.predict() on the model
-    return tf.mul(input, tf.sqrt(tf.scalar(128, "float32")));
+    return tf.mul(input, tf.sqrt(tf.scalar(this.dModel, "float32")));
   }
 
   getClassName() {
@@ -83,10 +90,10 @@ class AddLayer extends tf.layers.Layer {
   call(inputs, kwargs) {
     let [input1, input2] = inputs;
 
-    if (input1 instanceof tf.Tensor) {
+    if (input1 instanceof tf.Tensor && input2 instanceof tf.Tensor) {
       return tf.add(input1, input2);
     } else {
-      return input1;
+      throw new Error('Both input1 and input2 should be instances of tf.Tensor.');
     }
   }
 
@@ -94,42 +101,41 @@ class AddLayer extends tf.layers.Layer {
     return "AddLayer";
   }
 }
+
 tf.serialization.registerClass(AddLayer);
 
-function applyEmbeddingAndPosEncoding(
-  inputLanguage,
-  input_vocab_size,
-  dModel,
-  dropout_rate = 0.1
-) {
-  const embedding_enc = tf.layers.embedding({
-    inputDim: input_vocab_size,
-    outputDim: dModel,
-    maskZero: true,
+function applyEmbeddingAndPosEncoding(inputLanguage, input_vocab_size, dModel, dropout_rate = 0.1) {
+  return tf.tidy(() => {
+    const embedding_enc = tf.layers.embedding({
+      inputDim: input_vocab_size,
+      outputDim: dModel,
+      maskZero: true,
+    });
+
+    const posEncoding_enc = positionalEncoding(input_vocab_size, dModel);
+    const length = inputLanguage.shape[1];
+  
+    let x_pos_enc = embedding_enc.apply(inputLanguage);
+  
+    if (x_pos_enc instanceof tf.Tensor) {
+      
+      x_pos_enc = tf.mul(x_pos_enc, tf.sqrt(tf.scalar(dModel, "float32")));
+  
+      const posEncodingSliced = posEncoding_enc.slice([0, 0], [length, -1]);
+  
+      
+      x_pos_enc = tf.add(posEncodingSliced, x_pos_enc);
+  
+      // Use tf.layers.dropout directly
+      x_pos_enc = tf.layers.dropout({ rate: dropout_rate }).apply(x_pos_enc);
+  
+      return x_pos_enc;
+    } else {
+      return x_pos_enc;  // This could be a symbolic tensor
+    }
   });
-  const posEncoding_enc = positionalEncoding(input_vocab_size, dModel);
-
-  const length = inputLanguage.shape[1];
-
-  let x_pos_enc = embedding_enc.apply(inputLanguage);
-
-  const multiplyLayer = new MultiplyLayer({ dModel: dModel });
-  x_pos_enc = multiplyLayer.apply(x_pos_enc);
-
-  const posEncodingSliced = posEncoding_enc.slice([0, 0], [length, -1]);
-
-  if (x_pos_enc instanceof tf.Tensor) {
-    const addLayer = new AddLayer();
-    x_pos_enc = addLayer.apply([posEncodingSliced, x_pos_enc]);
-
-    const dropout_enc = tf.layers.dropout({ rate: dropout_rate });
-
-    let x = dropout_enc.apply(x_pos_enc);
-    return x;
-  } else {
-    return x_pos_enc;
-  }
 }
+
 
 class TransformerModel {
   constructor(
@@ -310,14 +316,20 @@ function createFeedForwardLayer(dModel, dff, dropout_rate) {
   const layerNorm = tf.layers.layerNormalization();
 
   return function (input) {
-    const seqOutput = seq.apply(input);
-    if (input instanceof tf.Tensor) {
-      const output = tf.add(input, seqOutput);
-      return layerNorm.apply(output);
-    } else {
-      // Purely for when I'm running model.compile() to get the model summary
-      return layerNorm.apply(seqOutput);
-    }
+    return tf.tidy(() => { // Wrap the function body in tf.tidy
+      const seqOutput = seq.apply(input);
+      
+      if (input instanceof tf.Tensor) {
+        const output = tf.add(input, seqOutput);
+        // Explicitly dispose of intermediate tensors if they are not needed
+        seqOutput.dispose();
+        
+        return layerNorm.apply(output);
+      } else {
+        // Purely for when I'm running model.compile() to get the model summary
+        return layerNorm.apply(seqOutput);
+      }
+    });
   };
 }
 
@@ -328,39 +340,50 @@ function createBaseAttentionLayer(dModel, numHeads, dropout_rate, causal) {
   const add = tf.layers.add();
 
   return function (q, k, v) {
-    // Implement the operation of the layer here
-    const attnOutput = mha(q, k, v);
-    const addOutput = add.apply([q, attnOutput]);
-    return layernorm.apply(addOutput);
+    return tf.tidy(() => {  // Wrap the function body in tf.tidy
+      // Implement the operation of the layer here
+      const attnOutput = mha(q, k, v);
+      const addOutput = add.apply([q, attnOutput]);
+      const output = layernorm.apply(addOutput);
+
+      return output;
+    });
   };
 }
 
+
 function createMultiHeadAttentionLayer(dModel, numHeads, causal) {
-  if (dModel % numHeads !== 0) {
-    throw new Error("dModel must be divisible by numHeads");
-  }
+  return tf.tidy(() => { // Wrap the function body in tf.tidy
+    if (dModel % numHeads !== 0) {
+      throw new Error("dModel must be divisible by numHeads");
+    }
 
-  const depth = Math.floor(dModel / numHeads);
+    const depth = Math.floor(dModel / numHeads);
 
-  const wq = tf.layers.dense({ units: dModel });
-  const wk = tf.layers.dense({ units: dModel });
-  const wv = tf.layers.dense({ units: dModel });
+    // Reuse layers if they exist and have the same dimensions
+    const wq = tf.layers.dense({ units: dModel });
+    const wk = tf.layers.dense({ units: dModel });
+    const wv = tf.layers.dense({ units: dModel });
 
-  return function (q, k, v) {
-    const qProcessed = wq.apply(q);
-    const kProcessed = wk.apply(k);
-    const vProcessed = wv.apply(v);
+    return function (q, k, v) {
+      return tf.tidy(() => { // Another tf.tidy for this inner function
+        const qProcessed = wq.apply(q);
+        const kProcessed = wk.apply(k);
+        const vProcessed = wv.apply(v);
 
-    const splitHeadsAndComputeAttention = new SplitHeadsAndComputeAttention({
-      dModel: dModel,
-      numHeads: numHeads,
-      depth: depth,
-      causal: causal,
-    });
+        const splitHeadsAndComputeAttention = new SplitHeadsAndComputeAttention({
+          dModel: dModel,
+          numHeads: numHeads,
+          depth: depth,
+          causal: causal,
+        });
 
-    return splitHeadsAndComputeAttention.apply(
-      [qProcessed, kProcessed, vProcessed, q]);
-  };
+        const output = splitHeadsAndComputeAttention.apply([qProcessed, kProcessed, vProcessed, q]);
+
+        return output;
+      });
+    };
+  });
 }
 
 // I need to have this class or else my model will not compile, because I will be doing matrix operations with symbolic tensors
@@ -468,57 +491,66 @@ class SplitHeadsAndComputeAttention extends tf.layers.Layer {
 tf.serialization.registerClass(SplitHeadsAndComputeAttention);
 
 function maskedAccuracy(label, pred) {
-  // Log the label and prediction tensors to the console
-  console.log(label, pred);
+  // Note: Assumes last axis is the 'class' axis, and index 0 is used for padding or special tokens
+  
+  return tf.tidy(() => { // Automatically clean up tensors
+    // Find the index of the maximum value along axis 2 for both label and prediction
+    const predArgMax = tf.argMax(pred, 2);
+    const labelArgMax = tf.argMax(label, 2);
+  
+    // Check element-wise equality between the label and prediction
+    let match = tf.equal(labelArgMax, predArgMax);
+  
+    // Create a mask where label is not equal to 0
+    const mask = tf.notEqual(labelArgMax, 0);
+  
+    // Update the match tensor to only include positions where the mask is true
+    match = tf.logicalAnd(match, mask);
+  
+    // Cast the boolean tensors to float32 for mathematical operations
+    const castedMatch = tf.cast(match, "float32");
+    const castedMask = tf.cast(mask, "float32");
+  
+    // Calculate the accuracy by summing up the matches and dividing by the sum of the mask
+    const accuracy = tf.sum(castedMatch).div(tf.sum(castedMask));
+    
+    accuracy.print();
 
-  // Find the index of the maximum value along axis 2 for both label and prediction
-  let predArgMax = tf.argMax(pred, 2);
-  let labelArgMax = tf.argMax(label, 2);
-
-  // Check element-wise equality between the label and prediction
-  let match = tf.equal(labelArgMax, predArgMax);
-
-  // Create a mask where label is not equal to 0
-  // This is useful for ignoring padding or other special tokens
-  const mask = tf.notEqual(labelArgMax, 0);
-
-  // Update the match tensor to only include positions where the mask is true
-  match = tf.logicalAnd(match, mask);
-
-  // Cast the boolean tensors to float32 for mathematical operations
-  const castedMatch = tf.cast(match, "float32");
-  const castedMask = tf.cast(mask, "float32");
-
-  // Calculate the accuracy by summing up the matches and dividing by the sum of the mask
-  const accuracy = tf.sum(castedMatch).div(tf.sum(castedMask));
-
-  // Print the accuracy tensor
-  accuracy.print();
-
-  // Return the accuracy tensor
-  return accuracy;
+    // Return the accuracy tensor
+    return accuracy;
+  });
 }
+
 
 function maskedLoss(label, pred) {
-  // Create a mask where label is not equal to 0
-  // This is useful for ignoring padding or other special tokens
-  const mask = tf.notEqual(label, 0);
+  // Automatically dispose of intermediate tensors
+  return tf.tidy(() => {
+    // Create a mask where label is not equal to 0
+    const mask = tf.notEqual(label, 0);
 
-  // Compute the softmax cross-entropy loss
-  const lossObject = tf.losses.softmaxCrossEntropy(label, pred, true, "none");
+    // Compute the softmax cross-entropy loss
+    const lossObject = tf.losses.softmaxCrossEntropy(label, pred, true, "none");
 
-  // Cast the mask tensor to the same dtype as the lossObject for multiplication
-  const castedMask = tf.cast(mask, lossObject.dtype);
+    // Cast the mask tensor to the same dtype as the lossObject for multiplication
+    const castedMask = tf.cast(mask, lossObject.dtype);
 
-  // Multiply the loss by the mask to ignore irrelevant tokens
-  let loss = tf.mul(lossObject, castedMask);
+    // Multiply the loss by the mask to ignore irrelevant tokens
+    let loss = tf.mul(lossObject, castedMask);
 
-  // Calculate the final loss by summing up the masked losses and dividing by the sum of the mask
-  loss = tf.sum(loss).div(tf.sum(castedMask));
+    // Check if mask sum is greater than zero to avoid division by zero
+    const maskSum = tf.sum(castedMask);
+    if (maskSum.dataSync()[0] === 0) {
+      throw new Error("Sum of mask is zero, division by zero would occur");
+    }
 
-  // Return the final loss tensor
-  return loss;
+    // Calculate the final loss by summing up the masked losses and dividing by the sum of the mask
+    loss = tf.sum(loss).div(maskSum);
+
+    // Return the final loss tensor
+    return loss;
+  });
 }
+
 
 function createMiniBatches(data, batchSize) {
   const miniBatches = [];

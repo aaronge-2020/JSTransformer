@@ -44,7 +44,7 @@ const MAX_TOKENS = 13;
 
 // Sampling from the dataset
 const start_point = 0;
-const batch_size = 32*4;
+const batch_size = 128;
 const numb_of_batches = 125;
 const numb_samples = batch_size * numb_of_batches;
 const numb_epochs = 15;
@@ -155,58 +155,58 @@ const word_probs_label_train_batches = createMiniBatches(
 
 
 const loadedModel = await tf.loadLayersModel(
-  "http://127.0.0.1:5500/my-model-epoch-1-batch-20.json"
+  "http://127.0.0.1:5500/my-model-epoch-2-batch-41.json"
 );
 
 loadedModel.compile({
   loss: maskedLoss,
   optimizer: "adam",
   metrics: maskedAccuracy,
-});
+// });
 
-// Train the model
+// // Train the model
 
-{
-  for (let j = 0; j < numb_epochs; j++) {
-    for (let i = 1; i < en_train_batches.length - 1; i++) {
+// {
+//   for (let j = 0; j < numb_epochs; j++) {
+//     for (let i = 1; i < en_train_batches.length - 1; i++) {
       
-      const train_x_batch = tf.tensor(en_train_batches[i]);
-      const train_y_batch = tf.tensor(target_lang_input_train_batches[i]);
-      const labels_batch = tf.tensor(word_probs_label_train_batches[i]);
+//       const train_x_batch = tf.tensor(en_train_batches[i]);
+//       const train_y_batch = tf.tensor(target_lang_input_train_batches[i]);
+//       const labels_batch = tf.tensor(word_probs_label_train_batches[i]);
 
-      try {
-        // Train the model on the current batch
-        await loadedModel.trainOnBatch(
-          [train_x_batch, train_y_batch],
-          labels_batch
-        );
+//       try {
+//         // Train the model on the current batch
+//         await loadedModel.trainOnBatch(
+//           [train_x_batch, train_y_batch],
+//           labels_batch
+//         );
 
-        // save the model every 20 batches
-        if (i % 20 === 0){
-          await loadedModel.save('downloads://my-model' + '-epoch-' + (j + 1) + '-batch-' + (i));
-        }
+//         // save the model every 20 batches
+//         if (i % 20 === 0){
+//           await loadedModel.save('downloads://my-model' + '-epoch-' + (j + 1) + '-batch-' + (i));
+//         }
 
 
-      } catch (error) {
-        console.error(error);
-      }
+//       } catch (error) {
+//         console.error(error);
+//       }
 
-      // Dispose tensors to free memory
-      train_x_batch.dispose();
-      train_y_batch.dispose();
-      labels_batch.dispose();
+//       // Dispose tensors to free memory
+//       train_x_batch.dispose();
+//       train_y_batch.dispose();
+//       labels_batch.dispose();
 
-      console.log(
-        `Batch ${i + 1} completed. ${
-          en_train_batches.length - i - 1
-        } batches remaining.`
-      );
-    }
+//       console.log(
+//         `Batch ${i + 1} completed. ${
+//           en_train_batches.length - i - 1
+//         } batches remaining.`
+//       );
+//     }
 
-    console.log(
-      `Epoch ${j + 1} completed. ${numb_epochs - j - 1} epochs remaining.`
-    );
-  }
-}
-// await model.save('downloads://my-model');
-// loadedModel.predict([tf.tensor(en_train_batches[0]), tf.tensor(target_lang_input_train_batches[0])]).print();
+//     console.log(
+//       `Epoch ${j + 1} completed. ${numb_epochs - j - 1} epochs remaining.`
+//     );
+//   }
+// }
+// // await model.save('downloads://my-model');
+// // loadedModel.predict([tf.tensor(en_train_batches[0]), tf.tensor(target_lang_input_train_batches[0])]).print();
